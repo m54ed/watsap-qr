@@ -86,8 +86,9 @@ async function connect() {
     markOnlineOnConnect: false,
     syncFullHistory: true,
     keepAliveIntervalMs: 20000,
-    connectTimeoutMs: 40000,
+    connectTimeoutMs: 60000,
     retryRequestDelayMs: 1000,
+    qrTimeout: 120000, // يبقي رمز الربط/QR صالحاً مدة أطول (يقلّل تكرار الاتصال الذي يُبطِل الرمز)
   });
 
   sock.ev.on('creds.update', saveCreds);

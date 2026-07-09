@@ -7,6 +7,7 @@ import {
   SafeAreaView, View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, I18nManager, StatusBar, Alert, Image,
 } from 'react-native';
+import DocumentPicker, { types } from 'react-native-document-picker';
 import { startEngine, call, on } from './src/bridge';
 
 I18nManager.allowRTL(true);
@@ -30,6 +31,21 @@ export default function App() {
   const [cName, setCName] = useState('');
   const [cNum, setCNum] = useState('');
   const [pairNum, setPairNum] = useState('');
+  const [media, setMedia] = useState<any>(null); // {path, name, type}
+
+  async function pickMedia() {
+    try {
+      const res = await DocumentPicker.pickSingle({
+        type: [types.images, types.video],
+        copyTo: 'cachesDirectory',
+      });
+      const uri = (res.fileCopyUri || res.uri || '').replace(/^file:\/\//, '');
+      const mt = (res.type || '').startsWith('video') ? 'video' : 'image';
+      setMedia({ path: decodeURIComponent(uri), name: res.name || 'ملف', type: mt });
+    } catch (e: any) {
+      if (!DocumentPicker.isCancel(e)) Alert.alert('خطأ', 'تعذّر اختيار الملف: ' + e.message);
+    }
+  }
 
   const refreshTasks = useCallback(() => call('tasksList').then(setTasks).catch(() => {}), []);
   const refreshContacts = useCallback(() => call('contactsList').then(setContacts).catch(() => {}), []);
@@ -53,15 +69,20 @@ export default function App() {
   async function addTask() {
     const mins = parseInt(minsFromNow) || 5;
     const run_at = Date.now() + mins * 60000;
-    if (!body.trim()) return Alert.alert('تنبيه', 'اكتب نص الرسالة/الحالة.');
+    if (!body.trim() && !media) return Alert.alert('تنبيه', 'اكتب نصاً أو أرفق وسائط.');
     let targets: any[] = [];
     if (kind === 'message') {
       if (!contacts.length) return Alert.alert('تنبيه', 'أضف أشخاصاً في تبويب «الأشخاص» أولاً.');
       targets = contacts.map((c) => ({ name: c.name, number: c.number, isGroup: false }));
     }
     try {
-      await call('taskAdd', { title: kind === 'status' ? 'حالة' : 'رسالة', kind, targets, body: body.trim(), run_at, repeat_type: repeat });
-      setBody('');
+      await call('taskAdd', {
+        title: kind === 'status' ? 'حالة' : 'رسالة', kind, targets,
+        body: body.trim(), run_at, repeat_type: repeat,
+        media_path: media ? media.path : null,
+        media_type: media ? media.type : null,
+      });
+      setBody(''); setMedia(null);
       refreshTasks();
       Alert.alert('تم', 'أُضيفت المهمة إلى الطابور.');
       setTab('queue');
@@ -155,6 +176,20 @@ export default function App() {
             </View>
             <Text style={s.lbl}>النص (يدعم {'{الاسم}'})</Text>
             <TextInput style={[s.input, { height: 100 }]} multiline value={body} onChangeText={setBody} placeholder="اكتب الرسالة أو الحالة…" placeholderTextColor={C.muted} />
+
+            <Text style={s.lbl}>الوسائط (صورة/فيديو — اختياري)</Text>
+            <View style={s.row}>
+              <TouchableOpacity style={[s.seg, { flex: 1 }]} onPress={pickMedia}>
+                <Text style={s.segTxt}>📎 {media ? 'تغيير الوسائط' : 'إرفاق صورة/فيديو'}</Text>
+              </TouchableOpacity>
+              {media && (
+                <TouchableOpacity style={[s.seg, { width: 70 }]} onPress={() => setMedia(null)}>
+                  <Text style={[s.segTxt, { color: C.danger }]}>إزالة</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {media && <Text style={s.muted}>✓ {media.name} ({media.type === 'video' ? 'فيديو' : 'صورة'})</Text>}
+
             <Text style={s.lbl}>بعد كم دقيقة من الآن؟</Text>
             <TextInput style={s.input} keyboardType="numeric" value={minsFromNow} onChangeText={setMinsFromNow} placeholderTextColor={C.muted} />
             <Text style={s.lbl}>التكرار</Text>
@@ -166,7 +201,6 @@ export default function App() {
               ))}
             </View>
             <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={addTask}><Text style={[s.btnTxt, { color: '#04220f' }]}>➕ إضافة إلى الطابور</Text></TouchableOpacity>
-            <Text style={s.muted}>ملاحظة: إرفاق الوسائط يُضاف في تحديث قادم — حالياً نص فقط.</Text>
           </View>
         )}
 
