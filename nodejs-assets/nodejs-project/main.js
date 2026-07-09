@@ -29,6 +29,7 @@ rn_bridge.channel.on('message', async (raw) => {
   try {
     switch (cmd) {
       case 'getState': return reply(true, wa.getState());
+      case 'requestPairing': await wa.requestPairing(args); return reply(true, true);
       case 'logout': await wa.logout(); return reply(true, true);
       case 'fetchGroups': return reply(true, await wa.fetchGroups());
 

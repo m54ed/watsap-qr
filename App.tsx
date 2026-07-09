@@ -30,6 +30,7 @@ export default function App() {
   const [repeat, setRepeat] = useState<'none' | 'daily' | 'weekly'>('none');
   const [cName, setCName] = useState('');
   const [cNum, setCNum] = useState('');
+  const [pairNum, setPairNum] = useState('');
 
   const refreshTasks = useCallback(() => call('tasksList').then(setTasks).catch(() => {}), []);
   const refreshContacts = useCallback(() => call('contactsList').then(setContacts).catch(() => {}), []);
@@ -48,7 +49,7 @@ export default function App() {
     return () => { offReady(); offState(); offTasks(); offLogs(); };
   }, [refreshTasks, refreshContacts, refreshLogs]);
 
-  const connLabel = state.state === 'ready' ? 'متصل ✓' : state.state === 'qr' ? 'امسح الرمز' : state.state === 'connecting' ? 'جارٍ الاتصال…' : 'غير متصل';
+  const connLabel = state.state === 'ready' ? 'متصل ✓' : state.state === 'pairing' ? 'أدخل الرمز' : state.state === 'qr' ? 'امسح الرمز' : state.state === 'connecting' ? 'جارٍ الاتصال…' : 'غير متصل';
 
   async function addTask() {
     const mins = parseInt(minsFromNow) || 5;
@@ -112,6 +113,32 @@ export default function App() {
             ) : (
               <Text style={[s.muted, { textAlign: 'center', marginVertical: 30 }]}>⏳ جارٍ تحضير رمز QR…</Text>
             )}
+
+            {/* الربط برمز — للربط على نفس الجوال بلا كاميرا */}
+            {state.state !== 'ready' && (
+              <View style={{ borderTopWidth: 1, borderColor: C.line, marginTop: 16, paddingTop: 16 }}>
+                <Text style={[s.h2, { fontSize: 15 }]}>أو الربط برمز (نفس الجوال)</Text>
+                {state.pairingCode ? (
+                  <View style={{ alignItems: 'center', marginVertical: 12 }}>
+                    <Text style={s.muted}>اكتب هذا الرمز في واتساب:</Text>
+                    <Text style={{ color: C.brand, fontSize: 32, fontWeight: '700', letterSpacing: 4, marginVertical: 8 }}>{state.pairingCode}</Text>
+                    <Text style={[s.muted, { textAlign: 'center' }]}>واتساب ← الأجهزة المرتبطة ← ربط جهاز ← «الربط برقم الهاتف بدلاً من ذلك» ← أدخل الرمز</Text>
+                  </View>
+                ) : (
+                  <>
+                    <TextInput style={s.input} value={pairNum} onChangeText={setPairNum} keyboardType="phone-pad" placeholder="رقمك الدولي بلا + مثل 9677xxxxxxxx" placeholderTextColor={C.muted} />
+                    <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={() => {
+                      const n = pairNum.replace(/[^\d]/g, '');
+                      if (n.length < 8) return Alert.alert('تنبيه', 'أدخل رقمك بصيغة دولية (رمز الدولة + الرقم).');
+                      call('requestPairing', n).catch((e: any) => Alert.alert('خطأ', e.message));
+                    }}>
+                      <Text style={[s.btnTxt, { color: '#04220f' }]}>🔑 إنشاء رمز ربط</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            )}
+
             {state.state === 'ready' && (
               <TouchableOpacity style={[s.btn, s.btnDanger]} onPress={() => call('logout').then(() => call('getState').then(setState))}>
                 <Text style={s.btnTxt}>تسجيل الخروج / فصل الجلسة</Text>

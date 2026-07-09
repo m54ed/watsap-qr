@@ -12,11 +12,13 @@ let saveCreds = null;
 let authDir = null;
 let logger = null;
 
-let state = 'disconnected'; // disconnected | qr | connecting | ready
+let state = 'disconnected'; // disconnected | qr | connecting | ready | pairing
 let lastQr = null;
 let emit = () => {};
 let stopping = false;
 let reconnectTimer = null;
+let pairPhone = null;   // رقم الهاتف عند الربط برمز (نفس الجوال)
+let pairingCode = null; // رمز الربط المُولّد
 const knownContacts = new Set();
 
 async function loadBaileys() {
@@ -79,6 +81,21 @@ async function connect() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // ربط برمز (Pairing Code) — للربط على نفس الجوال بلا مسح QR
+  if (pairPhone && !authState.creds.registered) {
+    setTimeout(async () => {
+      try {
+        const num = String(pairPhone).replace(/[^\d]/g, '');
+        pairingCode = await sock.requestPairingCode(num);
+        state = 'pairing';
+        emit('state', getState());
+      } catch (e) {
+        emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
+      }
+    }, 3000);
+  }
+
   sock.ev.on('contacts.upsert', (c) => collectContacts(c));
   sock.ev.on('contacts.update', (c) => collectContacts(c));
   sock.ev.on('messaging-history.set', ({ contacts }) => collectContacts(contacts));
@@ -87,7 +104,7 @@ async function connect() {
     const { connection, lastDisconnect, qr } = update;
     if (qr) { state = 'qr'; lastQr = qr; emit('state', getState()); }
     if (connection === 'open') {
-      state = 'ready'; lastQr = null; emit('state', getState());
+      state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; emit('state', getState());
       setTimeout(() => {
         sock.resyncAppState(['critical_unblock_low', 'regular_high', 'regular_low', 'regular'], true).catch(() => {});
       }, 4000);
@@ -118,7 +135,16 @@ async function start({ dataDir, onEvent }) {
   catch (e) { state = 'disconnected'; emit('state', { ...getState(), error: 'تعذّر البدء: ' + e.message }); }
 }
 
-function getState() { return { state, qr: lastQr }; }
+function getState() { return { state, qr: lastQr, pairingCode }; }
+
+/** طلب رمز ربط لرقم هاتف (للربط على نفس الجوال بلا QR). */
+async function requestPairing(number) {
+  pairPhone = number;
+  pairingCode = null;
+  stopping = false;
+  try { if (sock) sock.end(new Error('re-pair')); } catch (_) {}
+  scheduleReconnect(500);
+}
 
 function assertReady() { if (!sock || state !== 'ready') throw new Error('واتساب غير متصل.'); }
 
@@ -182,4 +208,4 @@ async function logout() {
   scheduleReconnect(1000);
 }
 
-module.exports = { start, getState, sendMessageTo, postStatus, fetchGroups, logout };
+module.exports = { start, getState, sendMessageTo, postStatus, fetchGroups, logout, requestPairing };
