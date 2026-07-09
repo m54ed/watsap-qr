@@ -56,21 +56,22 @@ function buildContent(body, mediaPath, mediaType) {
 }
 
 async function connect() {
+  console.log('WA: connect() start');
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   const b = await loadBaileys();
   const makeWASocket = b.default || b.makeWASocket;
-  const { useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = b;
+  const { useMultiFileAuthState, makeCacheableSignalKeyStore } = b;
   const { state: authState, saveCreds: save } = await useMultiFileAuthState(authDir);
   saveCreds = save;
+  console.log('WA: auth loaded, registered=' + authState.creds.registered);
 
-  let version;
-  try { ({ version } = await fetchLatestBaileysVersion()); } catch (_) { version = undefined; }
+  // نستخدم النسخة المدمجة في Baileys (بلا fetchLatestBaileysVersion — قد يتعلّق على الجوال)
 
   state = 'connecting';
   emit('state', getState());
 
   sock = makeWASocket({
-    version, logger,
+    logger,
     auth: { creds: authState.creds, keys: makeCacheableSignalKeyStore(authState.keys, logger) },
     browser: ['WA Scheduler', 'Chrome', '1.0'],
     markOnlineOnConnect: false,
@@ -100,8 +101,10 @@ async function connect() {
   sock.ev.on('contacts.update', (c) => collectContacts(c));
   sock.ev.on('messaging-history.set', ({ contacts }) => collectContacts(contacts));
 
+  console.log('WA: socket created, waiting for connection.update');
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
+    console.log('WA: connection.update conn=' + connection + ' qr=' + (qr ? 'YES' : 'no'));
     if (qr) { state = 'qr'; lastQr = qr; emit('state', getState()); }
     if (connection === 'open') {
       state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; emit('state', getState());
@@ -111,6 +114,7 @@ async function connect() {
     }
     if (connection === 'close') {
       const code = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode;
+      console.log('WA: CLOSE code=' + code + ' err=' + (lastDisconnect && lastDisconnect.error && lastDisconnect.error.message));
       if (code === b.DisconnectReason.loggedOut) {
         state = 'disconnected'; lastQr = null;
         try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (_) {}
