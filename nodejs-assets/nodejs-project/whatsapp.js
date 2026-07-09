@@ -88,7 +88,7 @@ async function connect() {
     keepAliveIntervalMs: 20000,
     connectTimeoutMs: 60000,
     retryRequestDelayMs: 1000,
-    qrTimeout: 120000, // يبقي رمز الربط/QR صالحاً مدة أطول (يقلّل تكرار الاتصال الذي يُبطِل الرمز)
+    qrTimeout: pairPhone ? 600000 : 120000, // وضع الربط: 10 دقائق ليبقى الرمز ثابتاً (لا يتغيّر قبل إدخاله)
   });
 
   sock.ev.on('creds.update', saveCreds);
