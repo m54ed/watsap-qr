@@ -34,6 +34,12 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    // فرض اتجاه RTL من أول تشغيل (قبل تحميل React Native) — يمنع «التطبيق معكوس»
+    getSharedPreferences("com.facebook.react.modules.i18nmanager.I18nUtil", MODE_PRIVATE)
+      .edit()
+      .putBoolean("RCTI18nUtil_allowRTL", true)
+      .putBoolean("RCTI18nUtil_forceRTL", true)
+      .apply()
     SoLoader.init(this, false)
     if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
       // If you opted-in for the New Architecture, we load the native entry point for this app.
