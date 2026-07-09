@@ -93,7 +93,7 @@ async function connect() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // ربط برمز (Pairing Code) — للربط على نفس الجوال بلا مسح QR
+  // ربط برمز (Pairing Code) — للربط على نفس الجوال بلا مسح QR (على هذا السوكِت الجديد)
   if (pairPhone && !authState.creds.registered) {
     setTimeout(async () => {
       try {
@@ -101,10 +101,12 @@ async function connect() {
         pairingCode = await sock.requestPairingCode(num);
         state = 'pairing';
         emit('state', getState());
+        console.log('WA: pairing code generated = ' + pairingCode);
       } catch (e) {
+        console.log('WA: pairing request failed = ' + e.message);
         emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
       }
-    }, 3000);
+    }, 4000);
   }
 
   sock.ev.on('contacts.upsert', (c) => collectContacts(c));
@@ -115,7 +117,7 @@ async function connect() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     console.log('WA: connection.update conn=' + connection + ' qr=' + (qr ? 'YES' : 'no'));
-    if (qr) {
+    if (qr && !pairPhone) {
       // نولّد صورة QR (data URL) في Node — تُعرض كـ Image في الواجهة (بلا مكتبة SVG تحتاج TextEncoder)
       try { lastQr = await require('qrcode').toDataURL(qr, { margin: 1, width: 300 }); }
       catch (_) { lastQr = qr; }
@@ -156,19 +158,25 @@ async function start({ dataDir, onEvent }) {
 
 function getState() { return { state, qr: lastQr, pairingCode }; }
 
-/** طلب رمز ربط لرقم هاتف — يطلبه على الاتصال الحالي مباشرة (لا يُنهي السوكِت). */
+/**
+ * طلب رمز ربط لرقم هاتف. يجب توليد الرمز على سوكِت **جديد** (وإلا «فشل الدخول»)،
+ * لذا نُغلق سوكِت QR الحالي ونعيد الاتصال بسوكِت نظيف يطلب الرمز في connect().
+ */
 async function requestPairing(number) {
-  const num = String(number).replace(/[^\d]/g, '');
-  pairPhone = num;
+  pairPhone = String(number).replace(/[^\d]/g, '');
   pairingCode = null;
-  if (!sock || state === 'ready') return; // بلا سوكِت أو متصل مسبقاً
+  state = 'connecting';
+  emit('state', getState());
+  console.log('WA: requestPairing -> fresh socket for ' + pairPhone);
   try {
-    pairingCode = await sock.requestPairingCode(num);
-    state = 'pairing';
-    emit('state', getState());
-  } catch (e) {
-    emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
-  }
+    if (sock) {
+      sock.ev.removeAllListeners('connection.update'); // امنع إعادة اتصال مزدوجة من السوكِت القديم
+      try { if (sock.ws) sock.ws.close(); } catch (_) {}
+    }
+  } catch (_) {}
+  sock = null;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  connect().catch((e) => console.log('WA: pair reconnect err ' + e.message));
 }
 
 function assertReady() { if (!sock || state !== 'ready') throw new Error('واتساب غير متصل.'); }
