@@ -1,0 +1,9 @@
+node_modules/
+nodejs-assets/nodejs-project/node_modules/
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+build-log.txt
+*.log
+.DS_Store
