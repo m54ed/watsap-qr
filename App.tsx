@@ -5,9 +5,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   SafeAreaView, View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, I18nManager, StatusBar, Alert,
+  StyleSheet, I18nManager, StatusBar, Alert, Image,
 } from 'react-native';
-import QRCode from 'react-native-qrcode-svg';
 import { startEngine, call, on } from './src/bridge';
 
 I18nManager.allowRTL(true);
@@ -106,7 +105,7 @@ export default function App() {
             ) : state.qr ? (
               <View style={{ alignItems: 'center', marginVertical: 16 }}>
                 <View style={{ backgroundColor: '#fff', padding: 12, borderRadius: 12 }}>
-                  <QRCode value={state.qr} size={240} />
+                  <Image source={{ uri: state.qr }} style={{ width: 240, height: 240 }} resizeMode="contain" />
                 </View>
                 <Text style={[s.muted, { marginTop: 12 }]}>واتساب ← الأجهزة المرتبطة ← ربط جهاز</Text>
               </View>

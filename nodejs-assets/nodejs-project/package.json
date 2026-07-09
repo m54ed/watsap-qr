@@ -4,6 +4,7 @@
   "main": "main.js",
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.16",
-    "pino": "^10.3.1"
+    "pino": "^10.3.1",
+    "qrcode": "^1.5.4"
   }
 }

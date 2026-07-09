@@ -114,7 +114,12 @@ async function connect() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     console.log('WA: connection.update conn=' + connection + ' qr=' + (qr ? 'YES' : 'no'));
-    if (qr) { state = 'qr'; lastQr = qr; emit('state', getState()); }
+    if (qr) {
+      // نولّد صورة QR (data URL) في Node — تُعرض كـ Image في الواجهة (بلا مكتبة SVG تحتاج TextEncoder)
+      try { lastQr = await require('qrcode').toDataURL(qr, { margin: 1, width: 300 }); }
+      catch (_) { lastQr = qr; }
+      state = 'qr'; emit('state', getState());
+    }
     if (connection === 'open') {
       state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; emit('state', getState());
       setTimeout(() => {
