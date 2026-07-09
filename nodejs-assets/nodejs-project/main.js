@@ -3,6 +3,16 @@
  * main.js — نقطة دخول Node داخل nodejs-mobile.
  * يربط واجهة React Native بمحرّك Baileys + المجدول عبر قناة rn-bridge.
  */
+
+// polyfill حاسم: Node 18 داخل nodejs-mobile لا يوفّر globalThis.crypto
+// (Web Crypto) الذي يحتاجه Baileys للتشفير — بدونه: «crypto is not defined».
+try {
+  const nodeCrypto = require('crypto');
+  if (typeof globalThis.crypto === 'undefined' && nodeCrypto.webcrypto) {
+    globalThis.crypto = nodeCrypto.webcrypto;
+  }
+} catch (_) {}
+
 const rn_bridge = require('rn-bridge');
 const store = require('./store');
 const wa = require('./whatsapp');
