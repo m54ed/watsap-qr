@@ -15,6 +15,14 @@ function send(obj) {
 }
 function emitEvent(event, payload) { send({ event, payload }); }
 
+// حارس عام: يمنع أي خطأ غير معالَج من إسقاط نواة Node (يبقيها حيّة دائماً)
+process.on('uncaughtException', (e) => {
+  try { emitEvent('log', 'خطأ غير متوقّع: ' + (e && e.message)); } catch (_) {}
+});
+process.on('unhandledRejection', (e) => {
+  try { emitEvent('log', 'رفض غير معالَج: ' + (e && (e.message || e))); } catch (_) {}
+});
+
 // تهيئة
 store.init(dataDir);
 wa.start({ dataDir, onEvent: (ev, data) => emitEvent(ev, data) });

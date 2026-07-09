@@ -137,13 +137,19 @@ async function start({ dataDir, onEvent }) {
 
 function getState() { return { state, qr: lastQr, pairingCode }; }
 
-/** طلب رمز ربط لرقم هاتف (للربط على نفس الجوال بلا QR). */
+/** طلب رمز ربط لرقم هاتف — يطلبه على الاتصال الحالي مباشرة (لا يُنهي السوكِت). */
 async function requestPairing(number) {
-  pairPhone = number;
+  const num = String(number).replace(/[^\d]/g, '');
+  pairPhone = num;
   pairingCode = null;
-  stopping = false;
-  try { if (sock) sock.end(new Error('re-pair')); } catch (_) {}
-  scheduleReconnect(500);
+  if (!sock || state === 'ready') return; // بلا سوكِت أو متصل مسبقاً
+  try {
+    pairingCode = await sock.requestPairingCode(num);
+    state = 'pairing';
+    emit('state', getState());
+  } catch (e) {
+    emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
+  }
 }
 
 function assertReady() { if (!sock || state !== 'ready') throw new Error('واتساب غير متصل.'); }
