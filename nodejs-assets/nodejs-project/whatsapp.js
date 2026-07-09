@@ -60,18 +60,27 @@ async function connect() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   const b = await loadBaileys();
   const makeWASocket = b.default || b.makeWASocket;
-  const { useMultiFileAuthState, makeCacheableSignalKeyStore } = b;
+  const { useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = b;
   const { state: authState, saveCreds: save } = await useMultiFileAuthState(authDir);
   saveCreds = save;
   console.log('WA: auth loaded, registered=' + authState.creds.registered);
 
-  // نستخدم النسخة المدمجة في Baileys (بلا fetchLatestBaileysVersion — قد يتعلّق على الجوال)
+  // أحدث نسخة واتساب-ويب بمهلة (لازمة لتفادي رفض 405، وبمهلة لتفادي التعلّق)
+  let version;
+  try {
+    const r = await Promise.race([
+      fetchLatestBaileysVersion(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000)),
+    ]);
+    version = r.version;
+    console.log('WA: WA-web version ' + JSON.stringify(version));
+  } catch (e) { version = undefined; console.log('WA: version fetch failed: ' + e.message); }
 
   state = 'connecting';
   emit('state', getState());
 
   sock = makeWASocket({
-    logger,
+    version, logger,
     auth: { creds: authState.creds, keys: makeCacheableSignalKeyStore(authState.keys, logger) },
     browser: ['WA Scheduler', 'Chrome', '1.0'],
     markOnlineOnConnect: false,
