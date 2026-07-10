@@ -19,6 +19,7 @@ let stopping = false;
 let reconnectTimer = null;
 let pairPhone = null;   // رقم الهاتف عند الربط برمز (نفس الجوال)
 let pairingCode = null; // رمز الربط المُولّد
+let pairingCodeIssued = false; // يُطلب الرمز مرة واحدة فقط؛ إعادة اتصال 515 يجب ألا تولّد رمزاً جديداً
 const knownContacts = new Set();
 
 async function loadBaileys() {
@@ -93,8 +94,10 @@ async function connect() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // ربط برمز (Pairing Code) — للربط على نفس الجوال بلا مسح QR (على هذا السوكِت الجديد)
-  if (pairPhone && !authState.creds.registered) {
+  // ربط برمز (Pairing Code) — يُطلب **مرة واحدة فقط**. إعادة اتصال 515 (restartRequired)
+  // بعد إدخال المستخدم للرمز يجب ألا تولّد رمزاً جديداً (وإلا يتغيّر الرمز و«يفشل الدخول»).
+  if (pairPhone && !authState.creds.registered && !pairingCodeIssued) {
+    pairingCodeIssued = true;
     setTimeout(async () => {
       try {
         const num = String(pairPhone).replace(/[^\d]/g, '');
@@ -103,6 +106,7 @@ async function connect() {
         emit('state', getState());
         console.log('WA: pairing code generated = ' + pairingCode);
       } catch (e) {
+        pairingCodeIssued = false; // اسمح بإعادة المحاولة إن فشل الطلب نفسه
         console.log('WA: pairing request failed = ' + e.message);
         emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
       }
@@ -124,7 +128,7 @@ async function connect() {
       state = 'qr'; emit('state', getState());
     }
     if (connection === 'open') {
-      state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; emit('state', getState());
+      state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; pairingCodeIssued = false; emit('state', getState());
       setTimeout(() => {
         sock.resyncAppState(['critical_unblock_low', 'regular_high', 'regular_low', 'regular'], true).catch(() => {});
       }, 4000);
@@ -165,6 +169,7 @@ function getState() { return { state, qr: lastQr, pairingCode }; }
 async function requestPairing(number) {
   pairPhone = String(number).replace(/[^\d]/g, '');
   pairingCode = null;
+  pairingCodeIssued = false; // زر جديد => اسمح بطلب رمز جديد واحد على السوكِت النظيف
   state = 'connecting';
   emit('state', getState());
   console.log('WA: requestPairing -> fresh socket for ' + pairPhone);
