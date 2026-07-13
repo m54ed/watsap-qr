@@ -20,6 +20,7 @@ let reconnectTimer = null;
 let pairPhone = null;   // رقم الهاتف عند الربط برمز (نفس الجوال)
 let pairingCode = null; // رمز الربط المُولّد
 let pairingCodeIssued = false; // يُطلب الرمز مرة واحدة فقط؛ إعادة اتصال 515 يجب ألا تولّد رمزاً جديداً
+let appStateSynced = false;    // إعادة مزامنة حالة التطبيق مرة واحدة لكل جلسة (تجنّب إشعارات مزامنة متكرّرة)
 const knownContacts = new Set();
 
 async function loadBaileys() {
@@ -85,7 +86,7 @@ async function connect() {
     auth: { creds: authState.creds, keys: makeCacheableSignalKeyStore(authState.keys, logger) },
     browser: ['WA Scheduler', 'Chrome', '1.0'],
     markOnlineOnConnect: false,
-    syncFullHistory: true,
+    syncFullHistory: false, // لا تسحب كامل السجل — يوقف إشعارات «جارٍ/تمت المزامنة» المتكرّرة على الجوال
     keepAliveIntervalMs: 20000,
     connectTimeoutMs: 60000,
     retryRequestDelayMs: 1000,
@@ -129,9 +130,13 @@ async function connect() {
     }
     if (connection === 'open') {
       state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; pairingCodeIssued = false; emit('state', getState());
-      setTimeout(() => {
-        sock.resyncAppState(['critical_unblock_low', 'regular_high', 'regular_low', 'regular'], true).catch(() => {});
-      }, 4000);
+      // إعادة مزامنة حالة التطبيق (لجلب جهات الحالة) **مرة واحدة فقط** — لا تُكرَّر في كل اتصال
+      if (!appStateSynced) {
+        appStateSynced = true;
+        setTimeout(() => {
+          sock.resyncAppState(['critical_unblock_low', 'regular_high', 'regular_low', 'regular'], true).catch(() => {});
+        }, 4000);
+      }
     }
     if (connection === 'close') {
       const code = lastDisconnect && lastDisconnect.error && lastDisconnect.error.output && lastDisconnect.error.output.statusCode;
@@ -240,7 +245,7 @@ async function logout() {
   stopping = true;
   try { if (sock) await sock.logout(); } catch (_) {}
   try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (_) {}
-  sock = null; state = 'disconnected'; lastQr = null;
+  sock = null; state = 'disconnected'; lastQr = null; appStateSynced = false;
   emit('state', getState());
   stopping = false;
   scheduleReconnect(1000);
