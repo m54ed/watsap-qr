@@ -62,9 +62,19 @@ async function connect() {
   const b = await loadBaileys();
   const makeWASocket = b.default || b.makeWASocket;
   const { useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = b;
-  const { state: authState, saveCreds: save } = await useMultiFileAuthState(authDir);
+  let { state: authState, saveCreds: save } = await useMultiFileAuthState(authDir);
   saveCreds = save;
   console.log('WA: auth loaded, registered=' + authState.creds.registered);
+
+  // شفاء ذاتي: هوية رقم موجودة لكن التسجيل لم يكتمل = جلسة ربط تالفة يرفضها واتساب (QR والرمز معاً).
+  // امسحها وأعِد التحميل نظيفاً حتى يظهر QR/رمز صالح من جديد.
+  if (authState.creds.me && !authState.creds.registered) {
+    console.log('WA: corrupt half-paired session detected -> wiping auth for clean start');
+    try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (_) {}
+    try { fs.mkdirSync(authDir, { recursive: true }); } catch (_) {}
+    ({ state: authState, saveCreds: save } = await useMultiFileAuthState(authDir));
+    saveCreds = save;
+  }
 
   // أحدث نسخة واتساب-ويب بمهلة (لازمة لتفادي رفض 405، وبمهلة لتفادي التعلّق)
   let version;
