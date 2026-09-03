@@ -180,8 +180,18 @@ function getState() { return { state, qr: lastQr, pairingCode }; }
  * طلب رمز ربط لرقم هاتف. يجب توليد الرمز على سوكِت **جديد** (وإلا «فشل الدخول»)،
  * لذا نُغلق سوكِت QR الحالي ونعيد الاتصال بسوكِت نظيف يطلب الرمز في connect().
  */
+let lastPairReq = 0;
 async function requestPairing(number) {
-  pairPhone = String(number).replace(/[^\d]/g, '');
+  const num = String(number).replace(/[^\d]/g, '');
+  const now = Date.now();
+  // debounce: تجاهل أي استدعاء مكرّر خلال 6 ثوانٍ لنفس الرقم — يمنع سوكِتين متنافسين
+  // (سبب رفض واتساب «تعذر ربط الجهاز») سواء جاء الازدواج من نقرة مزدوجة أو من الجسر.
+  if (num === pairPhone && (now - lastPairReq) < 6000) {
+    console.log('WA: requestPairing IGNORED (debounced duplicate)');
+    return;
+  }
+  lastPairReq = now;
+  pairPhone = num;
   pairingCode = null;
   state = 'connecting';
   emit('state', getState());
