@@ -18,8 +18,7 @@ let emit = () => {};
 let stopping = false;
 let reconnectTimer = null;
 let pairPhone = null;   // رقم الهاتف عند الربط برمز (نفس الجوال)
-let pairingCode = null; // رمز الربط المُولّد
-let pairingCodeIssued = false; // يُطلب الرمز مرة واحدة فقط؛ إعادة اتصال 515 يجب ألا تولّد رمزاً جديداً
+let pairingCode = null; // رمز الربط المُولّد (يطابق دائماً السوكِت الحيّ)
 let appStateSynced = false;    // إعادة مزامنة حالة التطبيق مرة واحدة لكل جلسة (تجنّب إشعارات مزامنة متكرّرة)
 const knownContacts = new Set();
 
@@ -95,23 +94,23 @@ async function connect() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  // ربط برمز (Pairing Code) — يُطلب **مرة واحدة فقط**. إعادة اتصال 515 (restartRequired)
-  // بعد إدخال المستخدم للرمز يجب ألا تولّد رمزاً جديداً (وإلا يتغيّر الرمز و«يفشل الدخول»).
-  if (pairPhone && !authState.creds.registered && !pairingCodeIssued) {
-    pairingCodeIssued = true;
+  // ربط برمز (Pairing Code): كل سوكِت حيّ يرسل companion_hello ويحمل رمزه الصالح الخاص.
+  // يجب توليد رمز جديد على **كل** سوكِت جديد ما دام غير مسجَّل — لأن رمز السوكِت الميت لا يعمل
+  // («فشل الدخول»). الفحص !registered وحده يمنع طلب رمز بعد نجاح الدخول (إعادة اتصال 515).
+  if (pairPhone && !authState.creds.registered) {
     setTimeout(async () => {
+      if (!sock || pairPhone === null) return; // أُلغِي الربط أو نجح أثناء الانتظار
       try {
         const num = String(pairPhone).replace(/[^\d]/g, '');
         pairingCode = await sock.requestPairingCode(num);
         state = 'pairing';
         emit('state', getState());
-        console.log('WA: pairing code generated = ' + pairingCode);
+        console.log('WA: pairing code generated = ' + pairingCode + ' (live socket)');
       } catch (e) {
-        pairingCodeIssued = false; // اسمح بإعادة المحاولة إن فشل الطلب نفسه
         console.log('WA: pairing request failed = ' + e.message);
         emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
       }
-    }, 4000);
+    }, 3000);
   }
 
   sock.ev.on('contacts.upsert', (c) => collectContacts(c));
@@ -129,7 +128,7 @@ async function connect() {
       state = 'qr'; emit('state', getState());
     }
     if (connection === 'open') {
-      state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; pairingCodeIssued = false; emit('state', getState());
+      state = 'ready'; lastQr = null; pairPhone = null; pairingCode = null; emit('state', getState());
       // إعادة مزامنة حالة التطبيق (لجلب جهات الحالة) **مرة واحدة فقط** — لا تُكرَّر في كل اتصال
       if (!appStateSynced) {
         appStateSynced = true;
@@ -174,7 +173,6 @@ function getState() { return { state, qr: lastQr, pairingCode }; }
 async function requestPairing(number) {
   pairPhone = String(number).replace(/[^\d]/g, '');
   pairingCode = null;
-  pairingCodeIssued = false; // زر جديد => اسمح بطلب رمز جديد واحد على السوكِت النظيف
   state = 'connecting';
   emit('state', getState());
   console.log('WA: requestPairing -> fresh socket for ' + pairPhone);
