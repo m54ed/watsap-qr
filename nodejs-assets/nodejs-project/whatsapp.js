@@ -66,15 +66,9 @@ async function connect() {
   saveCreds = save;
   console.log('WA: auth loaded, registered=' + authState.creds.registered);
 
-  // شفاء ذاتي: هوية رقم موجودة لكن التسجيل لم يكتمل = جلسة ربط تالفة يرفضها واتساب (QR والرمز معاً).
-  // امسحها وأعِد التحميل نظيفاً حتى يظهر QR/رمز صالح من جديد.
-  if (authState.creds.me && !authState.creds.registered) {
-    console.log('WA: corrupt half-paired session detected -> wiping auth for clean start');
-    try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (_) {}
-    try { fs.mkdirSync(authDir, { recursive: true }); } catch (_) {}
-    ({ state: authState, saveCreds: save } = await useMultiFileAuthState(authDir));
-    saveCreds = save;
-  }
+  // ملاحظة: لا نمسح الجلسة عند (me && !registered) — فهذه بالضبط حالة **نجاح المسح/الربط**
+  // أثناء إعادة تشغيل 515 (restartRequired): الهوية مضبوطة والتسجيل لم يُثبَّت بعد.
+  // مسحها هنا كان يدمّر كل ربط ناجح. التخلّص من الجلسة التالفة يتم عبر زر «امسح الرمز» أو 401/loggedOut.
 
   // أحدث نسخة واتساب-ويب بمهلة (لازمة لتفادي رفض 405، وبمهلة لتفادي التعلّق)
   let version;
