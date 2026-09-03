@@ -253,6 +253,8 @@ async function logout() {
   stopping = true;
   try { if (sock) await sock.logout(); } catch (_) {}
   try { fs.rmSync(authDir, { recursive: true, force: true }); } catch (_) {}
+  // ألغِ وضع الربط برمز أيضاً — وإلا يعود للربط بدل عرض QR ويعلق على «جاري التحضير»
+  pairPhone = null; pairingCode = null;
   sock = null; state = 'disconnected'; lastQr = null; appStateSynced = false;
   emit('state', getState());
   stopping = false;
