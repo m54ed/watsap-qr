@@ -24,6 +24,15 @@ const knownContacts = new Set();
 
 async function loadBaileys() {
   if (BAILEYS) return BAILEYS;
+  // إصلاح رمز الربط: getPlatformId في Baileys 6.7.16 يرسل رمز الحرف ('49') بدل رقم المنصة ('1')
+  // في companion_platform_id، فيرفض واتساب الربط («تعذّر ربط الجهاز»). أُصلح في 6.7.17+، لكنها تتطلّب
+  // Node 20 ونواة nodejs-mobile هي Node 18 — لذا نستبدل الدالة هنا. socket.js يقرؤها عبر getter حيّ.
+  const generics = require('@whiskeysockets/baileys/lib/Utils/generics');
+  const { proto } = require('@whiskeysockets/baileys/WAProto');
+  generics.getPlatformId = (browser) => {
+    const t = proto.DeviceProps.PlatformType[String(browser).toUpperCase()];
+    return t ? t.toString() : '1'; // chrome
+  };
   BAILEYS = require('@whiskeysockets/baileys');
   return BAILEYS;
 }
