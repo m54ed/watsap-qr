@@ -14,6 +14,12 @@ I18nManager.allowRTL(true);
 I18nManager.forceRTL(true);
 
 type Tab = 'connect' | 'compose' | 'queue' | 'contacts' | 'logs';
+// الفاصل العشوائي بين مستلم وآخر (بالثواني) — الأطول أأمن من الحظر
+const GAPS = {
+  fast: { label: 'سريع', hint: '8–20 ث', min: 8, max: 20 },
+  medium: { label: 'متوسط', hint: '30–90 ث', min: 30, max: 90 },
+  safe: { label: 'آمن', hint: '1–3 د', min: 60, max: 180 },
+} as const;
 const C = { bg: '#0e1a12', card: '#16241b', line: '#26382c', txt: '#e8f4ec', muted: '#8fb3a0', brand: '#25d366', danger: '#ef4444', warn: '#f3d27a' };
 
 export default function App() {
@@ -33,6 +39,8 @@ export default function App() {
   const [pairNum, setPairNum] = useState('');
   const [media, setMedia] = useState<any>(null); // {path, name, type}
   const [audience, setAudience] = useState<'contacts' | 'groups' | 'both'>('contacts');
+  const [jitter, setJitter] = useState<0 | 15 | 30 | 60>(15);
+  const [gap, setGap] = useState<keyof typeof GAPS>('medium');
   const [groups, setGroups] = useState<{ group_id: string; name: string }[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState('');
@@ -106,6 +114,7 @@ export default function App() {
       await call('taskAdd', {
         title: kind === 'status' ? 'حالة' : 'رسالة', kind, targets,
         body: body.trim(), run_at, repeat_type: repeat,
+        jitter_min: jitter, min_delay: GAPS[gap].min, max_delay: GAPS[gap].max,
         media_path: media ? media.path : null,
         media_type: media ? media.type : null,
       });
@@ -292,6 +301,32 @@ export default function App() {
                 </TouchableOpacity>
               ))}
             </View>
+
+            <Text style={s.lbl}>🛡️ توقيت عشوائي للبدء (للحماية)</Text>
+            <View style={s.rowSeg}>
+              {([0, 15, 30, 60] as const).map((j) => (
+                <TouchableOpacity key={j} style={[s.seg, jitter === j && s.segOn]} onPress={() => setJitter(j)}>
+                  <Text style={s.segTxt}>{j === 0 ? 'بدون' : `حتى ${j} د`}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={s.muted}>{jitter ? `يبدأ في لحظة عشوائية خلال ${jitter} دقيقة بعد الوقت المحدد، وتتغيّر في كل تكرار.` : 'يبدأ في الوقت المحدد بالضبط.'}</Text>
+
+            {kind === 'message' && (
+              <>
+                <Text style={s.lbl}>🛡️ الفاصل بين كل مستلم والذي يليه</Text>
+                <View style={s.rowSeg}>
+                  {(Object.keys(GAPS) as (keyof typeof GAPS)[]).map((g) => (
+                    <TouchableOpacity key={g} style={[s.seg, gap === g && s.segOn]} onPress={() => setGap(g)}>
+                      <Text style={s.segTxt}>{GAPS[g].label}</Text>
+                      <Text style={[s.muted, { marginTop: 2 }]}>{GAPS[g].hint}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={s.muted}>ترتيب المستلمين عشوائي في كل مرة، ويظهر «يكتب…» قبل كل رسالة.</Text>
+              </>
+            )}
+
             <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={addTask}><Text style={[s.btnTxt, { color: '#04220f' }]}>➕ إضافة إلى الطابور</Text></TouchableOpacity>
           </View>
         )}

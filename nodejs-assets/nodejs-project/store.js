@@ -37,6 +37,12 @@ const Settings = {
   set(k, v) { data.settings[k] = String(v == null ? '' : v); save(); },
 };
 
+/** لحظة عشوائية بين base و base + jitterMin دقيقة (بدقة الثانية) — لا يتكرر نمط الإرسال نفسه. */
+function jitterize(base, jitterMin) {
+  if (!jitterMin) return base;
+  return base + Math.floor(Math.random() * jitterMin * 60) * 1000;
+}
+
 const Tasks = {
   list() { return data.tasks.slice().sort((a, b) => a.run_at - b.run_at); },
   due(now) {
@@ -45,11 +51,14 @@ const Tasks = {
   },
   add(t) {
     const now = Date.now();
+    const jitter = Math.max(0, Number(t.jitter_min) || 0);
     const task = {
       id: data.seq++, title: t.title || '', kind: t.kind,
       targets: t.targets || [], body: t.body || '',
       media_path: t.media_path || null, media_type: t.media_type || null,
-      run_at: t.run_at, repeat_type: t.repeat_type || 'none', repeat_every: t.repeat_every || 0,
+      // base_at = الوقت الذي اختاره المستخدم؛ run_at = لحظة عشوائية ضمن [base_at, base_at + jitter] للحماية
+      base_at: t.run_at, jitter_min: jitter, run_at: jitterize(t.run_at, jitter),
+      repeat_type: t.repeat_type || 'none', repeat_every: t.repeat_every || 0,
       min_delay: t.min_delay ?? 8, max_delay: t.max_delay ?? 20,
       status: 'pending', attempts: 0, last_error: null, created_at: now, updated_at: now,
     };
@@ -60,8 +69,12 @@ const Tasks = {
     const t = this.find(id); if (t) { t.status = status; t.last_error = error || null; t.updated_at = Date.now(); save(); }
   },
   incAttempt(id) { const t = this.find(id); if (t) { t.attempts++; t.updated_at = Date.now(); save(); } },
-  reschedule(id, nextRunAt) {
-    const t = this.find(id); if (t) { t.run_at = nextRunAt; t.status = 'pending'; t.last_error = null; t.updated_at = Date.now(); save(); }
+  reschedule(id, nextBaseAt) {
+    const t = this.find(id);
+    if (t) {
+      t.base_at = nextBaseAt; t.run_at = jitterize(nextBaseAt, t.jitter_min || 0);
+      t.status = 'pending'; t.last_error = null; t.updated_at = Date.now(); save();
+    }
   },
   retry(id) { const t = this.find(id); if (t) { t.status = 'pending'; t.attempts = 0; t.last_error = null; t.updated_at = Date.now(); save(); } },
   remove(id) { data.tasks = data.tasks.filter((t) => t.id !== id); save(); },

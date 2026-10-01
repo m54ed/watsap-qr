@@ -267,8 +267,19 @@ async function sendMessageTo(target, body, mediaPath, mediaType) {
   const jid = target.isGroup ? String(target.id)
     : await withTimeout(resolveJid(target.number || target.id), 25000, 'تعذّر التحقق من الرقم');
   const content = buildContent(body, mediaPath, mediaType);
+  await simulateTyping(jid, body);
   try { await withTimeout(sock.sendMessage(jid, content), 45000, 'تعذّر الإرسال'); }
   catch (e) { if (/انتهت المهلة/.test(e.message)) forceReconnect(); throw e; }
+}
+
+/** «يكتب…» لمدة تناسب طول النص (2–8 ث مع عشوائية) قبل الإرسال — سلوك أقرب للإنسان. فشلها لا يمنع الإرسال. */
+async function simulateTyping(jid, body) {
+  const ms = Math.min(8000, 2000 + String(body || '').length * 40) * (0.7 + Math.random() * 0.6);
+  try {
+    await sock.sendPresenceUpdate('composing', jid);
+    await new Promise((r) => setTimeout(r, ms));
+    await sock.sendPresenceUpdate('paused', jid);
+  } catch (_) {}
 }
 
 async function postStatus(body, mediaPath, mediaType, audienceNumbers) {

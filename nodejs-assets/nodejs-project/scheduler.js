@@ -19,15 +19,21 @@ function applyVars(text, target) {
   return text.replace(/\{\s*(?:الاسم|اسم|name)\s*\}/gi, name);
 }
 
+/** الموعد الأساسي التالي: من الوقت المختار (base_at) لا من لحظة التنفيذ العشوائية — كي لا ينزاح الموعد. */
 function nextRun(t) {
-  const base = Date.now();
-  switch (t.repeat_type) {
-    case 'hourly': return base + 3600000;
-    case 'daily': return base + 86400000;
-    case 'weekly': return base + 7 * 86400000;
-    case 'interval': return base + Math.max(1, t.repeat_every) * 3600000;
-    default: return null;
-  }
+  const period = { hourly: 3600000, daily: 86400000, weekly: 7 * 86400000,
+    interval: Math.max(1, t.repeat_every) * 3600000 }[t.repeat_type];
+  if (!period) return null;
+  let next = (t.base_at ?? t.run_at) + period;
+  while (next <= Date.now()) next += period; // الجهاز كان مطفأً: تخطَّ المواعيد الفائتة
+  return next;
+}
+
+/** ترتيب عشوائي للمستلمين في كل تشغيل (Fisher–Yates) — لا يتكرر نفس التسلسل. */
+function shuffled(list) {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = rand(0, i); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
 }
 
 async function runTask(t) {
@@ -43,7 +49,7 @@ async function runTask(t) {
       store.Logs.add({ task_id: t.id, title: t.title, target: `حالة (${viewers} مشاهد)`, ok: true });
       ok++;
     } else {
-      const targets = t.targets || [];
+      const targets = shuffled(t.targets || []);
       if (!targets.length) throw new Error('لا يوجد مستلمون.');
       for (let i = 0; i < targets.length; i++) {
         const tg = targets[i];
