@@ -28,8 +28,11 @@ const GAPS = {
 const EMPTY: Data = { variants: [''], link: '', images: [], groups: [], gap: 'medium', log: [], nextAt: 0 };
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
-const isGroupUrl = (u: string) => /^(https?:\/\/)?(www\.|m\.|web\.)?(facebook|fb)\.com\/groups\/[^/?#\s]+/i.test(u.trim());
-const normUrl = (u: string) => (/^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
+// يقبل رابط القروب أو رقمه (ID) وحده — الرقم أثبت لأن الاسم المخصص في الرابط قد يغيّره المشرف
+const isGroupId = (u: string) => /^\d{5,20}$/.test(u.trim());
+const isGroupUrl = (u: string) => isGroupId(u) || /^(https?:\/\/)?(www\.|m\.|web\.)?(facebook|fb)\.com\/groups\/[^/?#\s]+/i.test(u.trim());
+const normUrl = (u: string) => (isGroupId(u) ? 'https://www.facebook.com/groups/' + u.trim()
+  : /^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
 const ago = (t?: number) => {
   if (!t) return 'لم يُنشر بعد';
   const m = Math.round((Date.now() - t) / 60000);
@@ -80,7 +83,7 @@ export default function FacebookPoster() {
   }
 
   function addGroup() {
-    if (!isGroupUrl(gUrl)) return Alert.alert('تنبيه', 'الصق رابط القروب كاملاً، مثل:\nfacebook.com/groups/اسم-القروب');
+    if (!isGroupUrl(gUrl)) return Alert.alert('تنبيه', 'الصق رابط القروب أو رقمه، مثل:\nfacebook.com/groups/اسم-القروب\nأو 123456789012345');
     const url = normUrl(gUrl);
     if (data.groups.some((g) => g.url === url)) return Alert.alert('تنبيه', 'هذا القروب مضاف من قبل.');
     const slug = url.split('/groups/')[1].split(/[/?#]/)[0];
@@ -170,10 +173,10 @@ export default function FacebookPoster() {
       {view === 'groups' && (
         <View style={st.card}>
           <Text style={st.h2}>القروبات</Text>
-          <TextInput style={st.input} value={gUrl} onChangeText={setGUrl} placeholder="رابط القروب facebook.com/groups/…" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="url" />
+          <TextInput style={st.input} value={gUrl} onChangeText={setGUrl} placeholder="رابط القروب أو رقمه (ID)" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="url" />
           <TextInput style={[st.input, { marginTop: 8 }]} value={gName} onChangeText={setGName} placeholder="اسم مختصر (اختياري)" placeholderTextColor={C.muted} />
           <TouchableOpacity style={[st.btn, { backgroundColor: C.fb }]} onPress={addGroup}><Text style={st.btnTxt}>إضافة القروب</Text></TouchableOpacity>
-          {data.groups.length === 0 && <Text style={st.muted}>انسخ رابط القروب من فيسبوك (مشاركة ← نسخ الرابط) والصقه هنا.</Text>}
+          {data.groups.length === 0 && <Text style={st.muted}>انسخ رابط القروب من فيسبوك (مشاركة ← نسخ الرابط) أو اكتب رقمه. الرقم أثبت: ما يتغيّر لو غيّر المشرف اسم الرابط.</Text>}
           {data.groups.map((g) => (
             <View key={g.id} style={st.item}>
               <View style={{ flex: 1 }}>
