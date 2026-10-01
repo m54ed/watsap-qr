@@ -18,6 +18,11 @@
   code { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:1px 6px; direction:ltr; unicode-bidi:embed; }
   .note { color: var(--warn); font-size: 14px; }
   .muted { color: var(--muted); font-size: 14px; }
+  textarea { width:100%; background:var(--bg); color:var(--txt); border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; resize:vertical; }
+  textarea:focus { outline:2px solid var(--fb); outline-offset:1px; }
+  #links { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; }
+  #links a { color:var(--fb); border:1px solid var(--fb); border-radius:999px; padding:6px 14px; text-decoration:none; }
+  #links a:hover { background:#14223a; }
 </style>
 </head>
 <body>
@@ -32,7 +37,19 @@
   </div>
 
   <div class="card">
-    <p><strong>2. على الكمبيوتر:</strong></p>
+    <p><strong>2أ. اجمع حسب الاهتمام:</strong></p>
+    <p class="muted">اكتب اهتماماتك (كل اهتمام في سطر أو بينها فاصلة)، وتطلع لك روابط بحث فيسبوك عن القروبات.</p>
+    <textarea id="kw" rows="3" placeholder="سيارات الرياض&#10;عقار جدة&#10;وظائف"></textarea>
+    <div id="links"></div>
+    <ol>
+      <li>افتح رابط الاهتمام (وأنت مسجّل دخول في فيسبوك).</li>
+      <li>اضغط زر <strong>📥 اجمع قروباتي</strong> — ينزل في النتائج ويحمّل <code>fb-groups-الاهتمام.txt</code>، واسم الاهتمام مكتوب بجانب كل قروب.</li>
+    </ol>
+    <p class="note">⚠️ ما تقدر تنشر إلا في القروب اللي أنت عضو فيه. انضم للقروبات على دفعات قليلة يومياً — الانضمام لعدد كبير مرة وحدة يخلي فيسبوك يقيّد حسابك.</p>
+  </div>
+
+  <div class="card">
+    <p><strong>2ب. أو اجمع القروبات اللي أنت فيها:</strong></p>
     <ol>
       <li>افتح <code>facebook.com/groups/joins</code> (قروباتك) وأنت مسجّل دخول.</li>
       <li>اضغط زر <strong>📥 اجمع قروباتي</strong> من شريط الإشارات.</li>
@@ -58,6 +75,8 @@ function collector() {
   window.__fbCollectorRunning = true;
   var SKIP = { feed:1, discover:1, joins:1, create:1, notifications:1, search:1, you:1, joined:1 };
   var map = new Map();
+  // في صفحة بحث القروبات: الاهتمام = كلمة البحث، تُكتب بجانب كل قروب وفي اسم الملف
+  var kw = /^\/search\/groups/.test(location.pathname) ? (new URLSearchParams(location.search).get('q') || '').trim() : '';
   var box = document.createElement('div');
   box.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#16241b;color:#e8f4ec;border:1px solid #4c8bf5;border-radius:12px;padding:12px 20px;font:15px system-ui;direction:rtl;box-shadow:0 6px 24px rgba(0,0,0,.4)';
   document.body.appendChild(box);
@@ -75,18 +94,40 @@ function collector() {
     box.textContent = '⏳ جارٍ الجمع… ' + map.size + ' قروب';
     if (map.size === last) same++; else { same = 0; last = map.size; }
     if (same < 4 && rounds++ < 300) { window.scrollTo(0, document.body.scrollHeight); setTimeout(step, 1500); return; }
-    var lines = []; map.forEach(function (n, t) { lines.push(t + (n ? '\t' + n : '')); });
-    var txt = '# قروبات فيسبوك — ' + new Date().toLocaleString() + '\n' + lines.join('\n') + '\n';
+    var lines = []; map.forEach(function (n, t) {
+      var label = [n, kw && '[' + kw + ']'].filter(Boolean).join(' ');
+      // الرقم يُكتب وحده؛ الاسم المخصص يُكتب رابطاً كاملاً وإلا لا يتعرّف عليه التطبيق
+      lines.push((/^\d+$/.test(t) ? t : 'facebook.com/groups/' + t) + (label ? '\t' + label : ''));
+    });
+    var txt = '# قروبات فيسبوك' + (kw ? ' — اهتمام: ' + kw : '') + ' — ' + new Date().toLocaleString() + '\n' + lines.join('\n') + '\n';
+    var file = 'fb-groups' + (kw ? '-' + kw.replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40) : '') + '.txt';
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain;charset=utf-8' }));
-    a.download = 'fb-groups.txt'; document.body.appendChild(a); a.click(); a.remove();
+    a.download = file; document.body.appendChild(a); a.click(); a.remove();
     if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(function () {});
-    box.textContent = '✅ تم: ' + map.size + ' قروب — نُزّل fb-groups.txt ونُسخت القائمة';
+    box.textContent = '✅ تم: ' + map.size + ' قروب — نُزّل ' + file + ' ونُسخت القائمة';
     window.__fbCollectorRunning = false;
     setTimeout(function () { box.remove(); }, 8000);
   })();
 }
 document.getElementById('bm').href = 'javascript:(' + encodeURIComponent(collector.toString()) + ')()';
+
+// روابط بحث القروبات لكل اهتمام — تُحفظ الاهتمامات محلياً للزيارة القادمة
+var kwBox = document.getElementById('kw'), linksBox = document.getElementById('links');
+function renderLinks() {
+  var list = kwBox.value.split(/[\n,،]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+  linksBox.textContent = '';
+  list.forEach(function (k) {
+    var a = document.createElement('a');
+    a.href = 'https://www.facebook.com/search/groups/?q=' + encodeURIComponent(k);
+    a.target = '_blank'; a.rel = 'noopener'; a.textContent = '🔎 ' + k;
+    linksBox.appendChild(a);
+  });
+  try { localStorage.setItem('fbKeywords', kwBox.value); } catch (e) {}
+}
+try { kwBox.value = localStorage.getItem('fbKeywords') || ''; } catch (e) {}
+kwBox.addEventListener('input', renderLinks);
+renderLinks();
 </script>
 </body>
 </html>
