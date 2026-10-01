@@ -25,7 +25,9 @@ function nextRun(t) {
     interval: Math.max(1, t.repeat_every) * 3600000 }[t.repeat_type];
   if (!period) return null;
   let next = (t.base_at ?? t.run_at) + period;
-  while (next <= Date.now()) next += period; // الجهاز كان مطفأً: تخطَّ المواعيد الفائتة
+  // تخطَّ فقط المواعيد الفائتة بأكثر من دورة كاملة (جهاز مطفأ). موعد فات بأقل من دورة — بسبب العشوائية
+  // أو طول الإرسال — يُنفَّذ متأخراً بدل أن تضيع دورة كاملة (تكرار كل ساعة كان يصير كل ساعتين).
+  while (next + period <= Date.now()) next += period;
   return next;
 }
 

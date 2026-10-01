@@ -112,29 +112,31 @@ async function connect() {
   // ربط برمز (Pairing Code): كل سوكِت حيّ يرسل companion_hello ويحمل رمزه الصالح الخاص.
   // يجب توليد رمز جديد على **كل** سوكِت جديد ما دام غير مسجَّل — لأن رمز السوكِت الميت لا يعمل
   // («فشل الدخول»). الفحص !registered وحده يمنع طلب رمز بعد نجاح الدخول (إعادة اتصال 515).
-  if (pairPhone && !authState.creds.registered) {
-    setTimeout(async () => {
-      if (!sock || pairPhone === null) return; // أُلغِي الربط أو نجح أثناء الانتظار
-      try {
-        const num = String(pairPhone).replace(/[^\d]/g, '');
-        const s = sock;
-        const reply = waitPairingReply(s);
-        const code = await s.requestPairingCode(num);
-        // Baileys 6.7.16 يرسل الطلب بلا انتظار الرد ويعيد الرمز حتى لو رفضه الخادم — فننتظر الرد نحن
-        // ولا نعرض رمزاً ميتاً (مثلاً 429 rate-overlimit بعد محاولات كثيرة).
-        const err = await reply;
-        if (err) throw new Error(err);
-        if (sock !== s) return; // استُبدل السوكِت أثناء الانتظار
-        pairingCode = code;
-        state = 'pairing';
-        emit('state', getState());
-        console.log('WA: pairing code generated = ' + pairingCode + ' (live socket)');
-      } catch (e) {
-        console.log('WA: pairing request failed = ' + e.message);
-        emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
-      }
-    }, 3000);
-  }
+  // يُطلب الرمز عند أول حدث qr (أي بعد pair-device من الخادم = السوكِت جاهز) لا بعد مؤقّت ثابت —
+  // على شبكة جوال بطيئة كان المؤقّت يسبق المصافحة فيفشل الطلب بـ Connection Closed.
+  let pairAsked = false;
+  const askPairingCode = async () => {
+    if (pairAsked || !pairPhone || authState.creds.registered) return;
+    pairAsked = true;
+    try {
+      const num = String(pairPhone).replace(/[^\d]/g, '');
+      const s = sock;
+      const reply = waitPairingReply(s);
+      const code = await s.requestPairingCode(num);
+      // Baileys 6.7.16 يرسل الطلب بلا انتظار الرد ويعيد الرمز حتى لو رفضه الخادم — فننتظر الرد نحن
+      // ولا نعرض رمزاً ميتاً (مثلاً 429 rate-overlimit بعد محاولات كثيرة).
+      const err = await reply;
+      if (err) throw new Error(err);
+      if (sock !== s) return; // استُبدل السوكِت أثناء الانتظار
+      pairingCode = code;
+      state = 'pairing';
+      emit('state', getState());
+      console.log('WA: pairing code generated = ' + pairingCode + ' (live socket)');
+    } catch (e) {
+      console.log('WA: pairing request failed = ' + e.message);
+      emit('state', { ...getState(), error: 'تعذّر إنشاء رمز الربط: ' + e.message });
+    }
+  };
 
   sock.ev.on('contacts.upsert', (c) => collectContacts(c));
   sock.ev.on('contacts.update', (c) => collectContacts(c));
@@ -144,6 +146,7 @@ async function connect() {
   sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
     console.log('WA: connection.update conn=' + connection + ' qr=' + (qr ? 'YES' : 'no'));
+    if (qr && pairPhone) askPairingCode();
     if (qr && !pairPhone) {
       // نولّد صورة QR (data URL) في Node — تُعرض كـ Image في الواجهة (بلا مكتبة SVG تحتاج TextEncoder)
       try { lastQr = await require('qrcode').toDataURL(qr, { margin: 1, width: 300 }); }

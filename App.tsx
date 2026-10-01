@@ -11,6 +11,7 @@ import DocumentPicker, { types } from 'react-native-document-picker';
 import { startEngine, call, on } from './src/bridge';
 import { C } from './src/theme';
 import FacebookPoster from './src/FacebookPoster';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 I18nManager.allowRTL(true);
 I18nManager.forceRTL(true);
@@ -24,7 +25,10 @@ const GAPS = {
 } as const;
 
 export default function App() {
-  const [mode, setMode] = useState<'wa' | 'fb'>('wa');
+  const [mode, setModeState] = useState<'wa' | 'fb'>('wa');
+  // القسم المختار محفوظ — يرجع لفيسبوك لو أعاد أندرويد تشغيل التطبيق أثناء جلسة نشر
+  useEffect(() => { AsyncStorage.getItem('appMode').then((m) => { if (m === 'fb') setModeState('fb'); }).catch(() => {}); }, []);
+  const setMode = (m: 'wa' | 'fb') => { setModeState(m); AsyncStorage.setItem('appMode', m).catch(() => {}); };
   const [tab, setTab] = useState<Tab>('connect');
   const [state, setState] = useState<any>({ state: 'disconnected', qr: null });
   const [tasks, setTasks] = useState<any[]>([]);

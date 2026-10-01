@@ -81,7 +81,9 @@ function collector() {
   box.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#16241b;color:#e8f4ec;border:1px solid #4c8bf5;border-radius:12px;padding:12px 20px;font:15px system-ui;direction:rtl;box-shadow:0 6px 24px rgba(0,0,0,.4)';
   document.body.appendChild(box);
   function collect() {
-    document.querySelectorAll('a[href*="/groups/"]').forEach(function (a) {
+    // منطقة المحتوى فقط — لا القائمة الجانبية ولا «قروبات مقترحة» (وإلا تختلط قروبات لا علاقة لها بالاهتمام)
+    var root = document.querySelector('[role="main"]') || document;
+    root.querySelectorAll('a[href*="/groups/"]').forEach(function (a) {
       var m = a.href.match(/\/groups\/([^/?#]+)/);
       if (!m || SKIP[m[1].toLowerCase()]) return;
       var name = ((a.innerText || a.getAttribute('aria-label') || '').trim().split('\n')[0] || '').slice(0, 80);

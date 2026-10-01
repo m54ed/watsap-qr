@@ -14,6 +14,7 @@ type Group = { id: string; name: string; url: string; lastAt?: number };
 type Data = {
   variants: string[]; link: string; images: { uri: string; name: string }[];
   groups: Group[]; gap: keyof typeof GAPS; log: { group: string; at: number }[]; nextAt: number;
+  pending: Pending | null; // محفوظ: لو أغلق أندرويد التطبيق وأنت في فيسبوك لا يضيع القروب المفتوح (منع نشر مكرر)
 };
 type Pending = { groupId: string; text: string };
 
@@ -26,7 +27,7 @@ const GAPS = {
   medium: { label: 'متوسط', hint: '5–12 د', min: 5, max: 12 },
   long: { label: 'طويل', hint: '12–25 د', min: 12, max: 25 },
 } as const;
-const EMPTY: Data = { variants: [''], link: '', images: [], groups: [], gap: 'medium', log: [], nextAt: 0 };
+const EMPTY: Data = { variants: [''], link: '', images: [], groups: [], gap: 'medium', log: [], nextAt: 0, pending: null };
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 // يقبل رابط القروب أو رقمه (ID) وحده — الرقم أثبت لأن الاسم المخصص في الرابط قد يغيّره المشرف
@@ -51,8 +52,10 @@ export function parseGroupList(text: string) {
     let token = '', rest = line;
     if (links.length === 1) { token = links[0][1]; rest = line.replace(links[0][0], ' '); }
     else {
-      const id = line.match(/(?:^|[^\d])(\d{5,20})(?!\d)/);
-      if (id) { token = id[1]; rest = line.replace(id[1], ' '); }
+      // آيدي القروب = أطول سلسلة أرقام لا تبدأ بصفر (الآيديات 15–16 رقماً) — لا تُؤخذ أسعار أو جوالات في الاسم
+      const runs = (line.match(/\d{5,20}/g) || []).filter((r) => r[0] !== '0');
+      const id = runs.reduce((best, r) => (r.length > best.length ? r : best), '');
+      if (id) { token = id; rest = line.replace(id, ' '); }
     }
     if (!token) { bad++; continue; }
     found.push({ token, name: rest.replace(/[\t|,;]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s:\-–]+|[\s:\-–]+$/g, '').trim() });
@@ -75,16 +78,19 @@ export default function FacebookPoster() {
   const [gUrl, setGUrl] = useState('');
   const [bulk, setBulk] = useState('');
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [pending, setPending] = useState<Pending | null>(null);
   const [now, setNow] = useState(Date.now());
   const lastVariant = useRef(-1);
 
   useEffect(() => {
     AsyncStorage.getItem(KEY).then((raw) => { if (raw) setData({ ...EMPTY, ...JSON.parse(raw) }); }).catch(() => {}).finally(() => setLoaded(true));
   }, []);
-  const save = useCallback((patch: Partial<Data>) => {
-    setData((d) => { const n = { ...d, ...patch }; AsyncStorage.setItem(KEY, JSON.stringify(n)).catch(() => {}); return n; });
-  }, []);
+  const save = useCallback((patch: Partial<Data>) => setData((d) => ({ ...d, ...patch })), []);
+  // حفظ مؤجَّل 400ms — لا كتابة كاملة للتخزين مع كل حرف
+  useEffect(() => {
+    if (!loaded) return;
+    const t = setTimeout(() => { AsyncStorage.setItem(KEY, JSON.stringify(data)).catch(() => {}); }, 400);
+    return () => clearTimeout(t);
+  }, [data, loaded]);
 
   // عدّاد الفاصل + إعادة الرسم عند الرجوع من فيسبوك
   useEffect(() => {
@@ -94,12 +100,15 @@ export default function FacebookPoster() {
   }, [data.nextAt, now]);
   useEffect(() => {
     const sub = AppState.addEventListener('change', (s) => { if (s === 'active') setNow(Date.now()); });
-    return () => sub.remove();
+    const t = setInterval(() => setNow(Date.now()), 30000); // كي لا تتجمّد «المتبقي اليوم» والتحذير
+    return () => { sub.remove(); clearInterval(t); };
   }, []);
 
   const variants = data.variants.map((v) => v.trim()).filter(Boolean);
   const postedToday = data.log.filter((l) => now - l.at < DAY).length;
   const due = data.groups.filter((g) => !g.lastAt || now - g.lastAt >= DAY);
+  const pending = data.pending;
+  const setPending = (p: Pending | null) => save({ pending: p });
   const nextAt = data.nextAt || 0; // محفوظ: لا يُتجاوز الفاصل بإغلاق التطبيق
   const waiting = nextAt > now;
 
@@ -166,8 +175,9 @@ export default function FacebookPoster() {
       groups: data.groups.map((x) => (x.id === pending.groupId ? { ...x, lastAt: at } : x)),
       log: [{ group: g ? g.name : '?', at }].concat(data.log).slice(0, 200),
       nextAt: at + rand(GAPS[data.gap].min, GAPS[data.gap].max) * 60000,
+      pending: null,
     });
-    setNow(at); setPending(null);
+    setNow(at);
   }
 
   if (!loaded) return <Text style={st.muted}>جارٍ التحميل…</Text>;
