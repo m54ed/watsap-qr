@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import DocumentPicker, { types } from 'react-native-document-picker';
 import { startEngine, call, on } from './src/bridge';
+import { C } from './src/theme';
+import FacebookPoster from './src/FacebookPoster';
 
 I18nManager.allowRTL(true);
 I18nManager.forceRTL(true);
@@ -20,9 +22,9 @@ const GAPS = {
   medium: { label: 'متوسط', hint: '30–90 ث', min: 30, max: 90 },
   safe: { label: 'آمن', hint: '1–3 د', min: 60, max: 180 },
 } as const;
-const C = { bg: '#0e1a12', card: '#16241b', line: '#26382c', txt: '#e8f4ec', muted: '#8fb3a0', brand: '#25d366', danger: '#ef4444', warn: '#f3d27a' };
 
 export default function App() {
+  const [mode, setMode] = useState<'wa' | 'fb'>('wa');
   const [tab, setTab] = useState<Tab>('connect');
   const [state, setState] = useState<any>({ state: 'disconnected', qr: null });
   const [tasks, setTasks] = useState<any[]>([]);
@@ -135,12 +137,27 @@ export default function App() {
     <SafeAreaView style={s.root}>
       <StatusBar barStyle="light-content" backgroundColor={C.card} />
       <View style={s.topbar}>
-        <Text style={s.brand}>🟢 مُجدوِل واتساب</Text>
-        <View style={[s.badge, { backgroundColor: state.state === 'ready' ? '#12301f' : '#3a2020' }]}>
-          <Text style={{ color: state.state === 'ready' ? '#6ff0a5' : '#ff9a9a', fontSize: 12 }}>{connLabel}</Text>
+        <View style={s.modeSwitch}>
+          <TouchableOpacity style={[s.modeBtn, mode === 'wa' && { backgroundColor: '#12301f' }]} onPress={() => setMode('wa')}>
+            <Text style={[s.modeTxt, mode === 'wa' && { color: C.brand }]}>واتساب</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[s.modeBtn, mode === 'fb' && { backgroundColor: '#14223a' }]} onPress={() => setMode('fb')}>
+            <Text style={[s.modeTxt, mode === 'fb' && { color: C.fb }]}>فيسبوك</Text>
+          </TouchableOpacity>
         </View>
+        {mode === 'wa' && (
+          <View style={[s.badge, { backgroundColor: state.state === 'ready' ? '#12301f' : '#3a2020' }]}>
+            <Text style={{ color: state.state === 'ready' ? '#6ff0a5' : '#ff9a9a', fontSize: 12 }}>{connLabel}</Text>
+          </View>
+        )}
       </View>
 
+      {mode === 'fb' ? (
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
+          <View style={s.warn}><Text style={{ color: C.warn, fontSize: 12 }}>⚠️ النشر يتم بيدك داخل فيسبوك. التطبيق يجهّز النص ويفتح القروب وينظّم الفواصل فقط.</Text></View>
+          <FacebookPoster />
+        </ScrollView>
+      ) : (<>
       <View style={s.tabs}>
         {(['connect', 'compose', 'queue', 'contacts', 'logs'] as Tab[]).map((t) => (
           <TouchableOpacity key={t} onPress={() => { setTab(t); if (t === 'queue') refreshTasks(); if (t === 'contacts') refreshContacts(); if (t === 'logs') refreshLogs(); }} style={[s.tab, tab === t && s.tabActive]}>
@@ -375,6 +392,7 @@ export default function App() {
           </View>
         )}
       </ScrollView>
+      </>)}
     </SafeAreaView>
   );
 }
@@ -383,6 +401,9 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, backgroundColor: C.card, borderBottomWidth: 1, borderColor: C.line },
   brand: { color: C.brand, fontSize: 17, fontWeight: '700' },
+  modeSwitch: { flexDirection: 'row', backgroundColor: C.bg, borderRadius: 999, padding: 3, borderWidth: 1, borderColor: C.line },
+  modeBtn: { minHeight: 40, paddingHorizontal: 18, borderRadius: 999, justifyContent: 'center' },
+  modeTxt: { color: C.muted, fontSize: 14, fontWeight: '700' },
   badge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999 },
   tabs: { flexDirection: 'row', backgroundColor: C.card, borderBottomWidth: 1, borderColor: C.line },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center' },

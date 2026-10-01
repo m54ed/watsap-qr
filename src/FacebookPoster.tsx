@@ -1,0 +1,271 @@
+/**
+ * FacebookPoster.tsx — مساعد نشر نصف آلي في قروبات فيسبوك.
+ * لا يتحكم بفيسبوك ولا ينشر بنفسه: يجهّز صياغة مختلفة لكل قروب، ينسخها للحافظة، يفتح القروب،
+ * والمستخدم يلصق وينشر بيده — ثم يفرض فاصلاً عشوائياً قبل القروب التالي (حماية الحساب).
+ */
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Linking, Clipboard, AppState, Image } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import DocumentPicker, { types } from 'react-native-document-picker';
+import { C } from './theme';
+
+type Group = { id: string; name: string; url: string; lastAt?: number };
+type Data = {
+  variants: string[]; link: string; images: { uri: string; name: string }[];
+  groups: Group[]; gap: keyof typeof GAPS; log: { group: string; at: number }[]; nextAt: number;
+};
+type Pending = { groupId: string; text: string };
+
+const KEY = 'fbPoster.v1';
+const DAY = 86400000;
+const DAILY_SOFT_LIMIT = 10;
+// الفاصل العشوائي بين قروب وآخر (بالدقائق)
+const GAPS = {
+  short: { label: 'قصير', hint: '2–5 د', min: 2, max: 5 },
+  medium: { label: 'متوسط', hint: '5–12 د', min: 5, max: 12 },
+  long: { label: 'طويل', hint: '12–25 د', min: 12, max: 25 },
+} as const;
+const EMPTY: Data = { variants: [''], link: '', images: [], groups: [], gap: 'medium', log: [], nextAt: 0 };
+
+const rand = (min: number, max: number) => min + Math.random() * (max - min);
+const isGroupUrl = (u: string) => /^(https?:\/\/)?(www\.|m\.|web\.)?(facebook|fb)\.com\/groups\/[^/?#\s]+/i.test(u.trim());
+const normUrl = (u: string) => (/^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
+const ago = (t?: number) => {
+  if (!t) return 'لم يُنشر بعد';
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? 'الآن' : m < 60 ? `منذ ${m} د` : m < 1440 ? `منذ ${Math.round(m / 60)} س` : `منذ ${Math.round(m / 1440)} يوم`;
+};
+const mmss = (ms: number) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+
+export default function FacebookPoster() {
+  const [data, setData] = useState<Data>(EMPTY);
+  const [loaded, setLoaded] = useState(false);
+  const [view, setView] = useState<'post' | 'groups' | 'run'>('post');
+  const [gName, setGName] = useState('');
+  const [gUrl, setGUrl] = useState('');
+  const [pending, setPending] = useState<Pending | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const lastVariant = useRef(-1);
+
+  useEffect(() => {
+    AsyncStorage.getItem(KEY).then((raw) => { if (raw) setData({ ...EMPTY, ...JSON.parse(raw) }); }).catch(() => {}).finally(() => setLoaded(true));
+  }, []);
+  const save = useCallback((patch: Partial<Data>) => {
+    setData((d) => { const n = { ...d, ...patch }; AsyncStorage.setItem(KEY, JSON.stringify(n)).catch(() => {}); return n; });
+  }, []);
+
+  // عدّاد الفاصل + إعادة الرسم عند الرجوع من فيسبوك
+  useEffect(() => {
+    if ((data.nextAt || 0) <= now) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [data.nextAt, now]);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => { if (s === 'active') setNow(Date.now()); });
+    return () => sub.remove();
+  }, []);
+
+  const variants = data.variants.map((v) => v.trim()).filter(Boolean);
+  const postedToday = data.log.filter((l) => now - l.at < DAY).length;
+  const due = data.groups.filter((g) => !g.lastAt || now - g.lastAt >= DAY);
+  const nextAt = data.nextAt || 0; // محفوظ: لا يُتجاوز الفاصل بإغلاق التطبيق
+  const waiting = nextAt > now;
+
+  async function pickImages() {
+    try {
+      const res = await DocumentPicker.pick({ type: [types.images], allowMultiSelection: true, copyTo: 'documentDirectory' });
+      const imgs = res.map((r) => ({ uri: r.fileCopyUri || r.uri, name: r.name || 'صورة' }));
+      save({ images: data.images.concat(imgs).slice(0, 10) });
+    } catch (e: any) { if (!DocumentPicker.isCancel(e)) Alert.alert('خطأ', 'تعذّر اختيار الصور: ' + e.message); }
+  }
+
+  function addGroup() {
+    if (!isGroupUrl(gUrl)) return Alert.alert('تنبيه', 'الصق رابط القروب كاملاً، مثل:\nfacebook.com/groups/اسم-القروب');
+    const url = normUrl(gUrl);
+    if (data.groups.some((g) => g.url === url)) return Alert.alert('تنبيه', 'هذا القروب مضاف من قبل.');
+    const slug = url.split('/groups/')[1].split(/[/?#]/)[0];
+    save({ groups: data.groups.concat({ id: String(Date.now()), name: gName.trim() || slug, url }) });
+    setGName(''); setGUrl('');
+  }
+
+  function openNext() {
+    if (!variants.length) { setView('post'); return Alert.alert('تنبيه', 'اكتب صياغة واحدة على الأقل للمنشور.'); }
+    if (!due.length) return Alert.alert('خلصت', 'نشرت في كل قروباتك خلال آخر 24 ساعة.');
+    const g = due[Math.floor(Math.random() * due.length)]; // ترتيب عشوائي
+    let vi = Math.floor(Math.random() * variants.length);
+    if (variants.length > 1 && vi === lastVariant.current) vi = (vi + 1) % variants.length; // لا تكرر نفس الصياغة مرتين متتاليتين
+    lastVariant.current = vi;
+    const text = variants[vi] + (data.link.trim() ? '\n\n' + data.link.trim() : '');
+    Clipboard.setString(text);
+    setPending({ groupId: g.id, text });
+    Linking.openURL(g.url).catch(() => Alert.alert('خطأ', 'تعذّر فتح الرابط.'));
+  }
+
+  function markPosted() {
+    if (!pending) return;
+    const at = Date.now();
+    const g = data.groups.find((x) => x.id === pending.groupId);
+    save({
+      groups: data.groups.map((x) => (x.id === pending.groupId ? { ...x, lastAt: at } : x)),
+      log: [{ group: g ? g.name : '?', at }].concat(data.log).slice(0, 200),
+      nextAt: at + rand(GAPS[data.gap].min, GAPS[data.gap].max) * 60000,
+    });
+    setNow(at); setPending(null);
+  }
+
+  if (!loaded) return <Text style={st.muted}>جارٍ التحميل…</Text>;
+  const pendingGroup = pending && data.groups.find((g) => g.id === pending.groupId);
+
+  return (
+    <View>
+      <View style={st.segRow}>
+        {([['post', 'المنشور'], ['groups', `القروبات (${data.groups.length})`], ['run', 'النشر']] as const).map(([k, l]) => (
+          <TouchableOpacity key={k} style={[st.seg, view === k && st.segOn]} onPress={() => setView(k)}>
+            <Text style={[st.segTxt, view === k && { color: C.fb }]}>{l}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {view === 'post' && (
+        <View style={st.card}>
+          <Text style={st.h2}>صياغات المنشور</Text>
+          <Text style={st.muted}>اكتب أكثر من صياغة لنفس الفكرة — تُختار واحدة مختلفة لكل قروب حتى لا يتكرر النص بالحرف.</Text>
+          {data.variants.map((v, i) => (
+            <View key={i} style={{ marginTop: 10 }}>
+              <View style={st.rowBetween}>
+                <Text style={st.lbl}>الصياغة {i + 1}</Text>
+                {data.variants.length > 1 && (
+                  <TouchableOpacity style={st.small} onPress={() => save({ variants: data.variants.filter((_, j) => j !== i) })}>
+                    <Text style={{ color: C.danger }}>حذف</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TextInput style={[st.input, { height: 96 }]} multiline value={v} placeholder="نص المنشور…" placeholderTextColor={C.muted}
+                onChangeText={(t) => save({ variants: data.variants.map((x, j) => (j === i ? t : x)) })} />
+            </View>
+          ))}
+          {data.variants.length < 6 && (
+            <TouchableOpacity style={st.outlineBtn} onPress={() => save({ variants: data.variants.concat('') })}>
+              <Text style={[st.segTxt, { color: C.fb }]}>➕ صياغة أخرى</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={st.lbl}>الرابط (يُضاف أسفل النص)</Text>
+          <TextInput style={st.input} value={data.link} onChangeText={(t) => save({ link: t })} placeholder="https://…" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="url" />
+
+          <Text style={st.lbl}>الصور</Text>
+          <Text style={st.muted}>فيسبوك لا يسمح بإرفاق الصور تلقائياً — تظهر هنا كتذكير، وتضيفها من المعرض داخل المنشور.</Text>
+          <View style={st.thumbs}>
+            {data.images.map((im, i) => (
+              <TouchableOpacity key={im.uri + i} onLongPress={() => save({ images: data.images.filter((_, j) => j !== i) })}>
+                <Image source={{ uri: im.uri }} style={st.thumb} />
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TouchableOpacity style={st.outlineBtn} onPress={pickImages}><Text style={[st.segTxt, { color: C.fb }]}>🖼️ اختيار صور</Text></TouchableOpacity>
+          {data.images.length > 0 && <Text style={st.muted}>اضغط مطوّلاً على صورة لإزالتها.</Text>}
+        </View>
+      )}
+
+      {view === 'groups' && (
+        <View style={st.card}>
+          <Text style={st.h2}>القروبات</Text>
+          <TextInput style={st.input} value={gUrl} onChangeText={setGUrl} placeholder="رابط القروب facebook.com/groups/…" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="url" />
+          <TextInput style={[st.input, { marginTop: 8 }]} value={gName} onChangeText={setGName} placeholder="اسم مختصر (اختياري)" placeholderTextColor={C.muted} />
+          <TouchableOpacity style={[st.btn, { backgroundColor: C.fb }]} onPress={addGroup}><Text style={st.btnTxt}>إضافة القروب</Text></TouchableOpacity>
+          {data.groups.length === 0 && <Text style={st.muted}>انسخ رابط القروب من فيسبوك (مشاركة ← نسخ الرابط) والصقه هنا.</Text>}
+          {data.groups.map((g) => (
+            <View key={g.id} style={st.item}>
+              <View style={{ flex: 1 }}>
+                <Text style={st.itemTitle} numberOfLines={1}>{g.name}</Text>
+                <Text style={st.muted}>{ago(g.lastAt)}</Text>
+              </View>
+              <TouchableOpacity style={st.small} onPress={() => Alert.alert('حذف القروب', g.name, [
+                { text: 'إلغاء', style: 'cancel' },
+                { text: 'حذف', style: 'destructive', onPress: () => save({ groups: data.groups.filter((x) => x.id !== g.id) }) },
+              ])}><Text style={{ color: C.danger }}>حذف</Text></TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {view === 'run' && (
+        <View style={st.card}>
+          <Text style={st.h2}>جلسة النشر</Text>
+          <Text style={st.muted}>اليوم: {postedToday} منشور · متبقٍّ {due.length} من {data.groups.length} قروب</Text>
+          {postedToday >= DAILY_SOFT_LIMIT && (
+            <View style={st.warn}><Text style={{ color: C.warn, fontSize: 13 }}>⚠️ نشرت في {postedToday} قروب خلال 24 ساعة. الأفضل تتوقف لليوم — النشر الكثير يعرّض الحساب للتقييد.</Text></View>
+          )}
+
+          <Text style={st.lbl}>🛡️ الفاصل بين قروب والذي يليه</Text>
+          <View style={st.segRow}>
+            {(Object.keys(GAPS) as (keyof typeof GAPS)[]).map((k) => (
+              <TouchableOpacity key={k} style={[st.seg, data.gap === k && st.segOn]} onPress={() => save({ gap: k })}>
+                <Text style={st.segTxt}>{GAPS[k].label}</Text>
+                <Text style={[st.muted, { marginTop: 2 }]}>{GAPS[k].hint}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {pending && pendingGroup ? (
+            <View style={st.pending}>
+              <Text style={st.itemTitle}>📋 النص منسوخ — الصقه في «{pendingGroup.name}»</Text>
+              <Text style={st.muted}>في فيسبوك: اضغط «اكتب شيئاً…» ← ضغطة مطوّلة ← لصق{data.images.length ? ` ← أضف ${data.images.length} صورة من المعرض` : ''} ← نشر.</Text>
+              <Text style={st.preview} numberOfLines={4}>{pending.text}</Text>
+              <TouchableOpacity style={[st.btn, { backgroundColor: C.brand }]} onPress={markPosted}><Text style={[st.btnTxt, { color: '#04220f' }]}>✓ نشرت</Text></TouchableOpacity>
+              <View style={st.segRow}>
+                <TouchableOpacity style={st.seg} onPress={() => { Clipboard.setString(pending.text); Linking.openURL(pendingGroup.url).catch(() => {}); }}>
+                  <Text style={st.segTxt}>افتح القروب مجدداً</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={st.seg} onPress={() => setPending(null)}><Text style={st.segTxt}>تخطَّ</Text></TouchableOpacity>
+              </View>
+            </View>
+          ) : waiting ? (
+            <View style={st.pending}>
+              <Text style={[st.itemTitle, { textAlign: 'center' }]}>⏳ القروب التالي بعد</Text>
+              <Text style={st.countdown}>{mmss(nextAt - now)}</Text>
+              <Text style={[st.muted, { textAlign: 'center' }]}>فاصل عشوائي لحماية حسابك. تقدر تطلع من التطبيق وترجع.</Text>
+            </View>
+          ) : (
+            <TouchableOpacity style={[st.btn, { backgroundColor: C.fb, opacity: due.length ? 1 : 0.5 }]} onPress={openNext}>
+              <Text style={st.btnTxt}>{due.length ? '▶ انسخ وافتح القروب التالي' : 'لا قروبات متبقية اليوم'}</Text>
+            </TouchableOpacity>
+          )}
+
+          {data.log.length > 0 && <Text style={[st.lbl, { marginTop: 16 }]}>آخر المنشورات</Text>}
+          {data.log.slice(0, 8).map((l, i) => (
+            <View key={l.at + '-' + i} style={st.item}>
+              <Text style={[st.itemTitle, { flex: 1 }]} numberOfLines={1}>✓ {l.group}</Text>
+              <Text style={st.muted}>{ago(l.at)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const st = StyleSheet.create({
+  card: { backgroundColor: C.card, borderColor: C.line, borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 14 },
+  h2: { color: C.txt, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  lbl: { color: C.muted, fontSize: 13, marginTop: 12, marginBottom: 4 },
+  muted: { color: C.muted, fontSize: 12, marginTop: 4 },
+  input: { backgroundColor: C.bg, borderColor: C.line, borderWidth: 1, borderRadius: 10, color: C.txt, paddingHorizontal: 12, paddingVertical: 10, textAlign: 'right', textAlignVertical: 'top' },
+  btn: { borderRadius: 10, minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 14 },
+  btnTxt: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  outlineBtn: { borderRadius: 10, minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 10, borderWidth: 1, borderColor: C.line },
+  segRow: { flexDirection: 'row', gap: 8, marginVertical: 6 },
+  seg: { flex: 1, minHeight: 48, justifyContent: 'center', borderRadius: 10, borderWidth: 1, borderColor: C.line, alignItems: 'center', backgroundColor: C.card },
+  segOn: { backgroundColor: '#14223a', borderColor: C.fb },
+  segTxt: { color: C.txt, fontSize: 13 },
+  rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  small: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' },
+  item: { flexDirection: 'row', alignItems: 'center', minHeight: 52, borderBottomWidth: 1, borderColor: C.line },
+  itemTitle: { color: C.txt, fontSize: 14 },
+  thumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
+  thumb: { width: 64, height: 64, borderRadius: 8, backgroundColor: C.bg },
+  warn: { backgroundColor: '#2a2110', borderColor: '#5a441a', borderWidth: 1, padding: 10, borderRadius: 10, marginTop: 10 },
+  pending: { borderWidth: 1, borderColor: C.fb, borderRadius: 12, padding: 14, marginTop: 14, backgroundColor: '#101a2b' },
+  preview: { color: C.txt, fontSize: 13, backgroundColor: C.bg, borderRadius: 8, padding: 10, marginTop: 10 },
+  countdown: { color: C.fb, fontSize: 40, fontWeight: '700', textAlign: 'center', marginVertical: 8, fontVariant: ['tabular-nums'] },
+});
