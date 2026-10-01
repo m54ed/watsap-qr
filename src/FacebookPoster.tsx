@@ -9,33 +9,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import DocumentPicker, { types } from 'react-native-document-picker';
 import { C } from './theme';
 import { call } from './bridge';
-
-type Group = { id: string; name: string; url: string; lastAt?: number };
-type Data = {
-  variants: string[]; link: string; images: { uri: string; name: string }[];
-  groups: Group[]; gap: keyof typeof GAPS; log: { group: string; at: number }[]; nextAt: number;
-  pending: Pending | null; // محفوظ: لو أغلق أندرويد التطبيق وأنت في فيسبوك لا يضيع القروب المفتوح (منع نشر مكرر)
-};
-type Pending = { groupId: string; text: string };
+import {
+  Data, Group, Pending, DAY, DAILY_SOFT_LIMIT, GAPS, EMPTY, rand, groupKey,
+  dueGroups, postedToday as countToday, pickJob, applyPosted,
+} from './fbShared';
+import FbAutoPanel from './FbAutoPanel';
 
 const KEY = 'fbPoster.v1';
-const DAY = 86400000;
-const DAILY_SOFT_LIMIT = 10;
-// الفاصل العشوائي بين قروب وآخر (بالدقائق)
-const GAPS = {
-  short: { label: 'قصير', hint: '2–5 د', min: 2, max: 5 },
-  medium: { label: 'متوسط', hint: '5–12 د', min: 5, max: 12 },
-  long: { label: 'طويل', hint: '12–25 د', min: 12, max: 25 },
-} as const;
-const EMPTY: Data = { variants: [''], link: '', images: [], groups: [], gap: 'medium', log: [], nextAt: 0, pending: null };
 
-const rand = (min: number, max: number) => min + Math.random() * (max - min);
 // يقبل رابط القروب أو رقمه (ID) وحده — الرقم أثبت لأن الاسم المخصص في الرابط قد يغيّره المشرف
 const isGroupId = (u: string) => /^\d{5,20}$/.test(u.trim());
 const isGroupUrl = (u: string) => isGroupId(u) || /^(https?:\/\/)?(www\.|m\.|web\.)?(facebook|fb)\.com\/groups\/[^/?#\s]+/i.test(u.trim());
 const normUrl = (u: string) => (isGroupId(u) ? 'https://www.facebook.com/groups/' + u.trim()
   : /^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
-const groupKey = (url: string) => (url.split('/groups/')[1] || '').split(/[/?#]/)[0].toLowerCase();
 
 /**
  * يستخرج القروبات من نص حر (ملف أو لصق): سطر لكل قروب = رابط أو رقم، ويُقبل اسم بعده
@@ -105,8 +91,8 @@ export default function FacebookPoster() {
   }, []);
 
   const variants = data.variants.map((v) => v.trim()).filter(Boolean);
-  const postedToday = data.log.filter((l) => now - l.at < DAY).length;
-  const due = data.groups.filter((g) => !g.lastAt || now - g.lastAt >= DAY);
+  const postedToday = countToday(data, now);
+  const due = dueGroups(data, now);
   const pending = data.pending;
   const setPending = (p: Pending | null) => save({ pending: p });
   const nextAt = data.nextAt || 0; // محفوظ: لا يُتجاوز الفاصل بإغلاق التطبيق
@@ -156,29 +142,20 @@ export default function FacebookPoster() {
 
   function openNext() {
     if (!variants.length) { setView('post'); return Alert.alert('تنبيه', 'اكتب صياغة واحدة على الأقل للمنشور.'); }
-    if (!due.length) return Alert.alert('خلصت', 'نشرت في كل قروباتك خلال آخر 24 ساعة.');
-    const g = due[Math.floor(Math.random() * due.length)]; // ترتيب عشوائي
-    let vi = Math.floor(Math.random() * variants.length);
-    if (variants.length > 1 && vi === lastVariant.current) vi = (vi + 1) % variants.length; // لا تكرر نفس الصياغة مرتين متتاليتين
-    lastVariant.current = vi;
-    const text = variants[vi] + (data.link.trim() ? '\n\n' + data.link.trim() : '');
-    Clipboard.setString(text);
-    setPending({ groupId: g.id, text });
-    Linking.openURL(g.url).catch(() => Alert.alert('خطأ', 'تعذّر فتح الرابط.'));
+    const job = pickJob(data, Date.now(), lastVariant);
+    if (!job) return Alert.alert('خلصت', 'نشرت في كل قروباتك خلال آخر 24 ساعة.');
+    Clipboard.setString(job.text);
+    setPending({ groupId: job.groupId, text: job.text });
+    Linking.openURL(job.group.url).catch(() => Alert.alert('خطأ', 'تعذّر فتح الرابط.'));
   }
 
   function markPosted() {
     if (!pending) return;
     const at = Date.now();
-    const g = data.groups.find((x) => x.id === pending.groupId);
-    save({
-      groups: data.groups.map((x) => (x.id === pending.groupId ? { ...x, lastAt: at } : x)),
-      log: [{ group: g ? g.name : '?', at }].concat(data.log).slice(0, 200),
-      nextAt: at + rand(GAPS[data.gap].min, GAPS[data.gap].max) * 60000,
-      pending: null,
-    });
+    setData((d) => applyPosted(d, pending.groupId, at));
     setNow(at);
   }
+
 
   if (!loaded) return <Text style={st.muted}>جارٍ التحميل…</Text>;
   const pendingGroup = pending && data.groups.find((g) => g.id === pending.groupId);
@@ -296,7 +273,21 @@ export default function FacebookPoster() {
             ))}
           </View>
 
-          {pending && pendingGroup ? (
+          <Text style={st.lbl}>طريقة النشر</Text>
+          <View style={st.segRow}>
+            {([['manual', 'يدوي (تنشر بيدك)'], ['auto', 'تلقائي (متصفح داخلي)']] as const).map(([k, l]) => (
+              <TouchableOpacity key={k} style={[st.seg, data.postMode === k && st.segOn]} onPress={() => save({ postMode: k })}>
+                <Text style={st.segTxt}>{l}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {data.postMode === 'auto' ? (
+            <>
+              <Text style={st.muted}>ينشر النص والرابط تلقائياً. الصور ما تُرفع تلقائياً (المتصفح لا يسمح باختيار ملفات بدونك).</Text>
+              <FbAutoPanel data={data} setData={setData} lastVariant={lastVariant} />
+            </>
+          ) : pending && pendingGroup ? (
             <View style={st.pending}>
               <Text style={st.itemTitle}>📋 النص منسوخ — الصقه في «{pendingGroup.name}»</Text>
               <Text style={st.muted}>في فيسبوك: اضغط «اكتب شيئاً…» ← ضغطة مطوّلة ← لصق{data.images.length ? ` ← أضف ${data.images.length} صورة من المعرض` : ''} ← نشر.</Text>
