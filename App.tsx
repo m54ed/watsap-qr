@@ -158,7 +158,7 @@ export default function App() {
 
       {mode === 'fb' ? (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14 }} keyboardShouldPersistTaps="handled">
-          <View style={s.warn}><Text style={{ color: C.warn, fontSize: 12 }}>⚠️ النشر يتم بيدك داخل فيسبوك. التطبيق يجهّز النص ويفتح القروب وينظّم الفواصل فقط.</Text></View>
+          <View style={s.warn}><Text style={{ color: C.warn, fontSize: 12 }}>⚠️ النشر الكثير في القروبات يعرّض حسابك للتقييد. التزم بعدد قليل يومياً.</Text></View>
           <FacebookPoster />
         </ScrollView>
       ) : (<>

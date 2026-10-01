@@ -113,7 +113,10 @@ export default function FbAutoPanel({ data, setData, lastVariant }: Props) {
     const j = job.current!;
     switch (m.step) {
       case 'probe':
-        if (!m.loggedIn) return stop('🔑 لست مسجّل دخول. اضغط «تسجيل الدخول» وسجّل بحسابك ثم «تشغيل تلقائي».');
+        if (!m.loggedIn) {
+          commit((x) => ({ ...x, pending: null })); // لم يبدأ أي نشر — لا تعرض «✓ نشرت»
+          return stop('🔑 لست مسجّل دخول. اضغط «تسجيل الدخول» وسجّل بحسابك ثم «تشغيل تلقائي».');
+        }
         if (!m.member) {
           addLog('↷ لست عضواً في «' + j.name + '» — تخطّيته اليوم');
           commit((x) => ({ ...x, pending: null, groups: x.groups.map((g) => (g.id === j.groupId ? { ...g, lastAt: Date.now() } : g)) }));
