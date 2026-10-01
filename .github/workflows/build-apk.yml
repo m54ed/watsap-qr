@@ -34,6 +34,9 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # الافتراضي يطلب حزمة 'tools' التي أزالتها Google من مستودع الـ SDK — فيفشل sdkmanager
+          packages: 'platform-tools'
 
       - name: Build release APK (standalone — JS bundled, no Metro needed)
         run: |
