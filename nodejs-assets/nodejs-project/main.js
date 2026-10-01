@@ -50,6 +50,11 @@ rn_bridge.channel.on('message', async (raw) => {
       case 'requestPairing': await wa.requestPairing(args); return reply(true, true);
       case 'logout': await wa.logout(); return reply(true, true);
       case 'fetchGroups': return reply(true, await wa.fetchGroups());
+      case 'readTextFile': { // استيراد ملف نصي (قائمة قروبات فيسبوك) — الواجهة لا تملك وصولاً للملفات
+        const fs = require('fs');
+        if (fs.statSync(args).size > 2 * 1024 * 1024) throw new Error('الملف أكبر من 2MB.');
+        return reply(true, fs.readFileSync(args, 'utf8'));
+      }
 
       case 'tasksList': return reply(true, store.Tasks.list());
       case 'taskAdd': store.Tasks.add(args); return reply(true, store.Tasks.list());

@@ -8,6 +8,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, Linking, Cl
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DocumentPicker, { types } from 'react-native-document-picker';
 import { C } from './theme';
+import { call } from './bridge';
 
 type Group = { id: string; name: string; url: string; lastAt?: number };
 type Data = {
@@ -33,6 +34,32 @@ const isGroupId = (u: string) => /^\d{5,20}$/.test(u.trim());
 const isGroupUrl = (u: string) => isGroupId(u) || /^(https?:\/\/)?(www\.|m\.|web\.)?(facebook|fb)\.com\/groups\/[^/?#\s]+/i.test(u.trim());
 const normUrl = (u: string) => (isGroupId(u) ? 'https://www.facebook.com/groups/' + u.trim()
   : /^https?:\/\//i.test(u.trim()) ? u.trim() : 'https://' + u.trim());
+const groupKey = (url: string) => (url.split('/groups/')[1] || '').split(/[/?#]/)[0].toLowerCase();
+
+/**
+ * يستخرج القروبات من نص حر (ملف أو لصق): سطر لكل قروب = رابط أو رقم، ويُقبل اسم بعده
+ * (مفصولاً بمسافة/Tab/|/,). السطر الذي فيه عدة روابط يُضاف كله بلا أسماء.
+ */
+export function parseGroupList(text: string) {
+  const found: { token: string; name: string }[] = [];
+  let bad = 0;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const links = [...line.matchAll(/(?:https?:\/\/)?(?:www\.|m\.|web\.)?(?:facebook|fb)\.com\/groups\/([^/?#\s|,;]+)[^\s|,;]*/gi)];
+    if (links.length > 1) { links.forEach((m) => found.push({ token: m[1], name: '' })); continue; }
+    let token = '', rest = line;
+    if (links.length === 1) { token = links[0][1]; rest = line.replace(links[0][0], ' '); }
+    else {
+      const id = line.match(/(?:^|[^\d])(\d{5,20})(?!\d)/);
+      if (id) { token = id[1]; rest = line.replace(id[1], ' '); }
+    }
+    if (!token) { bad++; continue; }
+    found.push({ token, name: rest.replace(/[\t|,;]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s:\-–]+|[\s:\-–]+$/g, '').trim() });
+  }
+  return { found, bad };
+}
+
 const ago = (t?: number) => {
   if (!t) return 'لم يُنشر بعد';
   const m = Math.round((Date.now() - t) / 60000);
@@ -46,6 +73,8 @@ export default function FacebookPoster() {
   const [view, setView] = useState<'post' | 'groups' | 'run'>('post');
   const [gName, setGName] = useState('');
   const [gUrl, setGUrl] = useState('');
+  const [bulk, setBulk] = useState('');
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   const [now, setNow] = useState(Date.now());
   const lastVariant = useRef(-1);
@@ -85,10 +114,35 @@ export default function FacebookPoster() {
   function addGroup() {
     if (!isGroupUrl(gUrl)) return Alert.alert('تنبيه', 'الصق رابط القروب أو رقمه، مثل:\nfacebook.com/groups/اسم-القروب\nأو 123456789012345');
     const url = normUrl(gUrl);
-    if (data.groups.some((g) => g.url === url)) return Alert.alert('تنبيه', 'هذا القروب مضاف من قبل.');
+    if (data.groups.some((g) => groupKey(g.url) === groupKey(url))) return Alert.alert('تنبيه', 'هذا القروب مضاف من قبل.');
     const slug = url.split('/groups/')[1].split(/[/?#]/)[0];
     save({ groups: data.groups.concat({ id: String(Date.now()), name: gName.trim() || slug, url }) });
     setGName(''); setGUrl('');
+  }
+
+  /** إضافة جماعية من نص (لصق أو ملف): يتخطى المكرر ويعرض ملخصاً. */
+  function importText(text: string) {
+    const { found, bad } = parseGroupList(text);
+    const seen = new Set(data.groups.map((g) => groupKey(g.url)));
+    const added: Group[] = [];
+    let dup = 0;
+    found.forEach((f, i) => {
+      const key = f.token.toLowerCase();
+      if (seen.has(key)) { dup++; return; }
+      seen.add(key);
+      added.push({ id: `${Date.now()}-${i}`, name: f.name || f.token, url: 'https://www.facebook.com/groups/' + f.token });
+    });
+    if (added.length) save({ groups: data.groups.concat(added) });
+    if (added.length) setBulk('');
+    Alert.alert('الإضافة الجماعية', `أُضيف ${added.length} قروب` + (dup ? `\nمكرر (تُخطّي): ${dup}` : '') + (bad ? `\nأسطر بلا رابط أو رقم: ${bad}` : ''));
+  }
+
+  async function importFile() {
+    try {
+      const f = await DocumentPicker.pickSingle({ type: [types.plainText, types.csv, 'text/*'], copyTo: 'cachesDirectory' });
+      const path = decodeURIComponent((f.fileCopyUri || f.uri || '').replace(/^file:\/\//, ''));
+      importText(await call('readTextFile', path));
+    } catch (e: any) { if (!DocumentPicker.isCancel(e)) Alert.alert('خطأ', 'تعذّر قراءة الملف: ' + e.message); }
   }
 
   function openNext() {
@@ -176,6 +230,28 @@ export default function FacebookPoster() {
           <TextInput style={st.input} value={gUrl} onChangeText={setGUrl} placeholder="رابط القروب أو رقمه (ID)" placeholderTextColor={C.muted} autoCapitalize="none" keyboardType="url" />
           <TextInput style={[st.input, { marginTop: 8 }]} value={gName} onChangeText={setGName} placeholder="اسم مختصر (اختياري)" placeholderTextColor={C.muted} />
           <TouchableOpacity style={[st.btn, { backgroundColor: C.fb }]} onPress={addGroup}><Text style={st.btnTxt}>إضافة القروب</Text></TouchableOpacity>
+
+          <View style={st.bulkBox}>
+            <TouchableOpacity style={st.rowBetween} onPress={() => setBulkOpen(!bulkOpen)}>
+              <Text style={st.itemTitle}>📥 إضافة جماعية (لصق أو ملف)</Text>
+              <Text style={[st.segTxt, { color: C.fb }]}>{bulkOpen ? 'إخفاء' : 'فتح'}</Text>
+            </TouchableOpacity>
+            {bulkOpen && (
+              <>
+                <Text style={st.muted}>قروب في كل سطر: رابط أو رقم، ويمكن كتابة الاسم بعده. المكرر يُتخطّى تلقائياً.</Text>
+                <TextInput style={[st.input, { height: 120, marginTop: 8 }]} multiline value={bulk} onChangeText={setBulk}
+                  placeholder={'123456789012345 قروب السيارات\nfacebook.com/groups/riyadh-market'} placeholderTextColor={C.muted} autoCapitalize="none" />
+                <View style={st.segRow}>
+                  <TouchableOpacity style={[st.seg, { backgroundColor: C.fb, borderColor: C.fb }]} onPress={() => (bulk.trim() ? importText(bulk) : Alert.alert('تنبيه', 'الصق القائمة أولاً.'))}>
+                    <Text style={st.btnTxt}>إضافة الكل</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={st.seg} onPress={importFile}>
+                    <Text style={[st.segTxt, { color: C.fb }]}>📄 استيراد ملف txt</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
           {data.groups.length === 0 && <Text style={st.muted}>انسخ رابط القروب من فيسبوك (مشاركة ← نسخ الرابط) أو اكتب رقمه. الرقم أثبت: ما يتغيّر لو غيّر المشرف اسم الرابط.</Text>}
           {data.groups.map((g) => (
             <View key={g.id} style={st.item}>
@@ -265,6 +341,7 @@ const st = StyleSheet.create({
   small: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'center' },
   item: { flexDirection: 'row', alignItems: 'center', minHeight: 52, borderBottomWidth: 1, borderColor: C.line },
   itemTitle: { color: C.txt, fontSize: 14 },
+  bulkBox: { borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, marginTop: 14, marginBottom: 6 },
   thumbs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   thumb: { width: 64, height: 64, borderRadius: 8, backgroundColor: C.bg },
   warn: { backgroundColor: '#2a2110', borderColor: '#5a441a', borderWidth: 1, padding: 10, borderRadius: 10, marginTop: 10 },

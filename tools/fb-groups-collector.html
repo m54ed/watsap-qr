@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>جامع قروبات فيسبوك</title>
+<style>
+  :root { --bg:#0e1a12; --card:#16241b; --line:#26382c; --txt:#e8f4ec; --muted:#8fb3a0; --fb:#4c8bf5; --warn:#f3d27a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:16px/1.7 system-ui, "Segoe UI", Tahoma, sans-serif; }
+  main { max-width: 680px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
+  .bm { display:inline-block; background:var(--fb); color:#fff; text-decoration:none; font-weight:700; padding:12px 22px; border-radius:999px; cursor:grab; }
+  ol { padding-inline-start: 22px; margin: 0; }
+  li { margin: 8px 0; }
+  code { background:var(--bg); border:1px solid var(--line); border-radius:6px; padding:1px 6px; direction:ltr; unicode-bidi:embed; }
+  .note { color: var(--warn); font-size: 14px; }
+  .muted { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>جامع قروبات فيسبوك</h1>
+  <p class="sub">يجمع أرقام وأسماء القروبات اللي أنت فيها في ملف نصي، تستورده في تطبيق «مُجدوِل واتساب» ← فيسبوك ← القروبات ← إضافة جماعية.</p>
+
+  <div class="card">
+    <p><strong>1. اسحب هذا الزر إلى شريط الإشارات المرجعية في المتصفح:</strong></p>
+    <p><a class="bm" id="bm" href="#">📥 اجمع قروباتي</a></p>
+    <p class="muted">لو شريط الإشارات مخفي: <code>Ctrl + Shift + B</code></p>
+  </div>
+
+  <div class="card">
+    <p><strong>2. على الكمبيوتر:</strong></p>
+    <ol>
+      <li>افتح <code>facebook.com/groups/joins</code> (قروباتك) وأنت مسجّل دخول.</li>
+      <li>اضغط زر <strong>📥 اجمع قروباتي</strong> من شريط الإشارات.</li>
+      <li>انتظر — ينزل في القائمة تلقائياً حتى يجمع كل القروبات، ثم يحمّل ملف <code>fb-groups.txt</code> وينسخ القائمة أيضاً.</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <p><strong>3. على الجوال:</strong></p>
+    <ol>
+      <li>أرسل الملف لنفسك (واتساب ← ملف) أو الصق النص المنسوخ.</li>
+      <li>في التطبيق: فيسبوك ← القروبات ← 📥 إضافة جماعية ← <strong>استيراد ملف txt</strong> أو الصق ← <strong>إضافة الكل</strong>.</li>
+    </ol>
+    <p class="note">الأداة تقرأ الصفحة المفتوحة أمامك فقط وتنزل فيها — لا تنشر ولا تضغط أي شيء في حسابك.</p>
+  </div>
+</main>
+
+<script>
+// كود الإشارة المرجعية: يعمل داخل صفحة فيسبوك — ينزل في قائمة القروبات ويجمع الروابط حتى تتوقف الزيادة
+function collector() {
+  if (!/(^|\.)facebook\.com$/.test(location.hostname)) { alert('افتح facebook.com/groups/joins أولاً ثم اضغط الزر.'); return; }
+  if (window.__fbCollectorRunning) return;
+  window.__fbCollectorRunning = true;
+  var SKIP = { feed:1, discover:1, joins:1, create:1, notifications:1, search:1, you:1, joined:1 };
+  var map = new Map();
+  var box = document.createElement('div');
+  box.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#16241b;color:#e8f4ec;border:1px solid #4c8bf5;border-radius:12px;padding:12px 20px;font:15px system-ui;direction:rtl;box-shadow:0 6px 24px rgba(0,0,0,.4)';
+  document.body.appendChild(box);
+  function collect() {
+    document.querySelectorAll('a[href*="/groups/"]').forEach(function (a) {
+      var m = a.href.match(/\/groups\/([^/?#]+)/);
+      if (!m || SKIP[m[1].toLowerCase()]) return;
+      var name = ((a.innerText || a.getAttribute('aria-label') || '').trim().split('\n')[0] || '').slice(0, 80);
+      if (!map.has(m[1]) || (!map.get(m[1]) && name)) map.set(m[1], name);
+    });
+  }
+  var same = 0, last = -1, rounds = 0;
+  (function step() {
+    collect();
+    box.textContent = '⏳ جارٍ الجمع… ' + map.size + ' قروب';
+    if (map.size === last) same++; else { same = 0; last = map.size; }
+    if (same < 4 && rounds++ < 300) { window.scrollTo(0, document.body.scrollHeight); setTimeout(step, 1500); return; }
+    var lines = []; map.forEach(function (n, t) { lines.push(t + (n ? '\t' + n : '')); });
+    var txt = '# قروبات فيسبوك — ' + new Date().toLocaleString() + '\n' + lines.join('\n') + '\n';
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'text/plain;charset=utf-8' }));
+    a.download = 'fb-groups.txt'; document.body.appendChild(a); a.click(); a.remove();
+    if (navigator.clipboard) navigator.clipboard.writeText(txt).catch(function () {});
+    box.textContent = '✅ تم: ' + map.size + ' قروب — نُزّل fb-groups.txt ونُسخت القائمة';
+    window.__fbCollectorRunning = false;
+    setTimeout(function () { box.remove(); }, 8000);
+  })();
+}
+document.getElementById('bm').href = 'javascript:(' + encodeURIComponent(collector.toString()) + ')()';
+</script>
+</body>
+</html>
