@@ -117,7 +117,15 @@ async function connect() {
       if (!sock || pairPhone === null) return; // أُلغِي الربط أو نجح أثناء الانتظار
       try {
         const num = String(pairPhone).replace(/[^\d]/g, '');
-        pairingCode = await sock.requestPairingCode(num);
+        const s = sock;
+        const reply = waitPairingReply(s);
+        const code = await s.requestPairingCode(num);
+        // Baileys 6.7.16 يرسل الطلب بلا انتظار الرد ويعيد الرمز حتى لو رفضه الخادم — فننتظر الرد نحن
+        // ولا نعرض رمزاً ميتاً (مثلاً 429 rate-overlimit بعد محاولات كثيرة).
+        const err = await reply;
+        if (err) throw new Error(err);
+        if (sock !== s) return; // استُبدل السوكِت أثناء الانتظار
+        pairingCode = code;
         state = 'pairing';
         emit('state', getState());
         console.log('WA: pairing code generated = ' + pairingCode + ' (live socket)');
@@ -166,6 +174,26 @@ async function connect() {
         scheduleReconnect(3000);
       }
     }
+  });
+}
+
+/** ينتظر رد الخادم على companion_hello: null عند القبول، أو رسالة خطأ مفهومة عند الرفض. */
+function waitPairingReply(s) {
+  return new Promise((resolve) => {
+    const done = (v) => { clearTimeout(timer); s.ws.off('frame', onFrame); resolve(v); };
+    const onFrame = (f) => {
+      if (!f || f.tag !== 'iq') return;
+      const kids = Array.isArray(f.content) ? f.content : [];
+      if (f.attrs.type === 'result' && kids.some((c) => c.tag === 'link_code_companion_reg')) return done(null);
+      if (f.attrs.type === 'error') {
+        const e = kids.find((c) => c.tag === 'error');
+        const code = e && e.attrs.code;
+        if (code === '429') return done('واتساب أوقف طلبات الربط مؤقتاً لكثرة المحاولات (429). انتظر ساعة تقريباً ثم أعد المحاولة.');
+        return done('رفض واتساب طلب الربط (' + (code || '?') + ' ' + ((e && e.attrs.text) || '') + ').');
+      }
+    };
+    const timer = setTimeout(() => done(null), 8000); // لا رد خلال المهلة: اعرض الرمز كما كان سابقاً
+    s.ws.on('frame', onFrame);
   });
 }
 

@@ -146,6 +146,7 @@ export default function App() {
                   </View>
                 ) : (
                   <>
+                    {state.error ? <Text style={{ color: C.warn, fontSize: 13, marginBottom: 8 }}>{state.error}</Text> : null}
                     <TextInput style={s.input} value={pairNum} onChangeText={setPairNum} keyboardType="phone-pad" placeholder="رقمك الدولي بلا + مثل 9677xxxxxxxx" placeholderTextColor={C.muted} />
                     <TouchableOpacity style={[s.btn, s.btnPrimary]} onPress={() => {
                       const n = pairNum.replace(/[^\d]/g, '');
