@@ -96,7 +96,9 @@ async function connect() {
   sock = makeWASocket({
     version, logger,
     auth: { creds: authState.creds, keys: makeCacheableSignalKeyStore(authState.keys, logger) },
-    browser: ['WA Scheduler', 'Chrome', '1.0'],
+    // اسم متصفح قياسي إلزامي: واتساب يرفض الربط برمز إذا كان companion_platform_display غير قياسي
+    // (كان «Chrome (WA Scheduler)» ⇒ «تعذّر ربط الجهاز»). جُرّب فعلياً: «Chrome (Mac OS)» يربط بنجاح.
+    browser: b.Browsers.macOS('Chrome'),
     markOnlineOnConnect: false,
     syncFullHistory: false, // لا تسحب كامل السجل — يوقف إشعارات «جارٍ/تمت المزامنة» المتكرّرة على الجوال
     keepAliveIntervalMs: 20000,
