@@ -47,7 +47,7 @@ export default function App() {
   const [audience, setAudience] = useState<'contacts' | 'groups' | 'both'>('contacts');
   const [jitter, setJitter] = useState<0 | 15 | 30 | 60>(15);
   const [gap, setGap] = useState<keyof typeof GAPS>('medium');
-  const [groups, setGroups] = useState<{ group_id: string; name: string }[]>([]);
+  const [groups, setGroups] = useState<{ group_id: string; name: string; locked?: boolean }[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [groupsError, setGroupsError] = useState('');
   const [groupQuery, setGroupQuery] = useState('');
@@ -111,7 +111,7 @@ export default function App() {
         targets = contacts.map((c) => ({ name: c.name, number: c.number, isGroup: false }));
       }
       if (audience !== 'contacts') {
-        const picked = groups.filter((g) => selGroups.has(g.group_id));
+        const picked = groups.filter((g) => selGroups.has(g.group_id) && !g.locked);
         if (!picked.length) return Alert.alert('تنبيه', 'اختر قروباً واحداً على الأقل.');
         targets = targets.concat(picked.map((g) => ({ name: g.name, id: g.group_id, isGroup: true })));
       }
@@ -268,21 +268,25 @@ export default function App() {
                         {(() => {
                           const q = groupQuery.trim();
                           const shown = q ? groups.filter((g) => (g.name || '').includes(q)) : groups;
-                          const allOn = shown.length > 0 && shown.every((g) => selGroups.has(g.group_id));
+                          const open = shown.filter((g) => !g.locked); // المقفلة (المشرفون فقط) لا تُختار
+                          const lockedCount = shown.length - open.length;
+                          const allOn = open.length > 0 && open.every((g) => selGroups.has(g.group_id));
                           return (
                             <>
                               <TouchableOpacity style={s.smallBtn} onPress={() => setSelGroups((prev) => {
-                                const n = new Set(prev); shown.forEach((g) => (allOn ? n.delete(g.group_id) : n.add(g.group_id))); return n;
+                                const n = new Set(prev); open.forEach((g) => (allOn ? n.delete(g.group_id) : n.add(g.group_id))); return n;
                               })}>
-                                <Text style={[s.segTxt, { color: C.brand }]}>{allOn ? 'إلغاء تحديد الظاهر' : `تحديد الظاهر (${shown.length})`}</Text>
+                                <Text style={[s.segTxt, { color: C.brand }]}>{allOn ? 'إلغاء تحديد الظاهر' : `تحديد الظاهر (${open.length})`}</Text>
                               </TouchableOpacity>
+                              {lockedCount > 0 && <Text style={s.muted}>🔒 {lockedCount} قروب مقفل (المشرفون فقط يرسلون) — ما ينرسل فيه إلا لو كنت مشرفاً.</Text>}
                               {shown.slice(0, 60).map((g) => {
                                 const on = selGroups.has(g.group_id);
                                 return (
-                                  <TouchableOpacity key={g.group_id} style={s.checkRow} onPress={() => toggleGroup(g.group_id)}
-                                    accessibilityRole="checkbox" accessibilityState={{ checked: on }}>
+                                  <TouchableOpacity key={g.group_id} style={[s.checkRow, g.locked && { opacity: 0.45 }]} disabled={g.locked} onPress={() => toggleGroup(g.group_id)}
+                                    accessibilityRole="checkbox" accessibilityState={{ checked: on, disabled: !!g.locked }}>
                                     <View style={[s.check, on && s.checkOn]}>{on && <Text style={{ color: '#04220f', fontWeight: '700' }}>✓</Text>}</View>
                                     <Text style={[s.itemTitle, { flex: 1 }]} numberOfLines={1}>{g.name || 'قروب بلا اسم'}</Text>
+                                    {g.locked && <Text style={s.muted}>🔒 للمشرفين فقط</Text>}
                                   </TouchableOpacity>
                                 );
                               })}

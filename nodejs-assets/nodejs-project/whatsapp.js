@@ -269,10 +269,24 @@ async function sendMessageTo(target, body, mediaPath, mediaType) {
   assertReady();
   const jid = target.isGroup ? String(target.id)
     : await withTimeout(resolveJid(target.number || target.id), 25000, 'تعذّر التحقق من الرقم');
+  if (target.isGroup) {
+    // قروب «المشرفون فقط يرسلون»: الخادم يرفض الرسالة — نتخطاه برسالة واضحة بدل فشل غامض أو مهلة
+    const meta = await withTimeout(sock.groupMetadata(jid), 25000, 'تعذّر جلب بيانات القروب');
+    if (meta.announce && !isAdmin(meta)) throw new Error('🔒 القروب مقفل — المشرفون فقط يرسلون فيه. تخطّيته.');
+  }
   const content = buildContent(body, mediaPath, mediaType);
   await simulateTyping(jid, body);
-  try { await withTimeout(sock.sendMessage(jid, content), 45000, 'تعذّر الإرسال'); }
+  // القروبات الكبيرة تحتاج وقتاً لتشفير الرسالة لكل الأعضاء — مهلة أطول حتى لا تُعدّ فشلاً
+  const limit = target.isGroup ? 90000 : 45000;
+  try { await withTimeout(sock.sendMessage(jid, content), limit, 'تعذّر الإرسال'); }
   catch (e) { if (/انتهت المهلة/.test(e.message)) forceReconnect(); throw e; }
+}
+
+/** هل حسابي مشرف في القروب؟ (يقارن برقمي وبمعرّف LID لأن القروبات الحديثة تستخدمه) */
+function isAdmin(meta) {
+  const norm = BAILEYS.jidNormalizedUser;
+  const me = [sock.user && sock.user.id, sock.user && sock.user.lid].filter(Boolean).map(norm);
+  return (meta.participants || []).some((p) => p.admin && me.includes(norm(p.id)));
 }
 
 /** «يكتب…» لمدة تناسب طول النص (2–8 ث مع عشوائية) قبل الإرسال — سلوك أقرب للإنسان. فشلها لا يمنع الإرسال. */
@@ -303,7 +317,10 @@ async function postStatus(body, mediaPath, mediaType, audienceNumbers) {
 async function fetchGroups() {
   assertReady();
   const groups = await sock.groupFetchAllParticipating();
-  return Object.values(groups || {}).map((g) => ({ group_id: g.id, name: g.subject || '' }));
+  return Object.values(groups || {}).map((g) => ({
+    group_id: g.id, name: g.subject || '',
+    locked: !!g.announce && !isAdmin(g), // «المشرفون فقط يرسلون» وأنا لست مشرفاً
+  }));
 }
 
 async function logout() {
