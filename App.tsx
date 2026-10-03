@@ -360,7 +360,7 @@ export default function App() {
               <View key={t.id} style={s.item}>
                 <View style={{ flex: 1 }}>
                   <Text style={s.itemTitle}>{t.title} · {t.kind === 'status' ? 'حالة' : 'رسالة'}</Text>
-                  <Text style={s.muted}>{new Date(t.run_at).toLocaleString('ar')} · {t.status}{t.last_error ? ' · ' + t.last_error.slice(0, 30) : ''}</Text>
+                  <Text style={s.muted}>{new Date(t.run_at).toLocaleString('ar')} · {t.status}{t.last_error ? ' · ' + t.last_error : ''}</Text>
                 </View>
                 <TouchableOpacity onPress={() => call('taskRemove', t.id).then(setTasks)}><Text style={{ color: C.danger }}>حذف</Text></TouchableOpacity>
               </View>
@@ -389,7 +389,10 @@ export default function App() {
             <Text style={s.muted}>ناجحة {stats.sent} · فاشلة {stats.failed} · الإجمالي {stats.total}</Text>
             {logs.map((l, i) => (
               <View key={i} style={s.item}>
-                <Text style={{ color: l.ok ? C.brand : C.danger, flex: 1 }}>{l.ok ? '✓' : '✗'} {l.title} · {l.target}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: l.ok ? C.brand : C.danger }}>{l.ok ? '✓' : '✗'} {l.title} · {l.target}</Text>
+                  {!l.ok && l.error ? <Text style={[s.muted, { color: '#ff9a9a' }]} selectable>{l.error}</Text> : null}
+                </View>
                 <Text style={s.muted}>{new Date(l.at).toLocaleTimeString('ar')}</Text>
               </View>
             ))}
