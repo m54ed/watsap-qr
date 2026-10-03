@@ -279,7 +279,9 @@ export default function App() {
                                 <Text style={[s.segTxt, { color: C.brand }]}>{allOn ? 'إلغاء تحديد الظاهر' : `تحديد الظاهر (${open.length})`}</Text>
                               </TouchableOpacity>
                               {lockedCount > 0 && <Text style={s.muted}>🔒 {lockedCount} قروب مقفل (المشرفون فقط يرسلون) — ما ينرسل فيه إلا لو كنت مشرفاً.</Text>}
-                              {shown.slice(0, 60).map((g) => {
+                              {/* كل القروبات بلا حد — داخل صندوق يتحرك لوحده حتى آخر قروب */}
+                              <ScrollView style={s.groupList} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                              {shown.map((g) => {
                                 const on = selGroups.has(g.group_id);
                                 return (
                                   <TouchableOpacity key={g.group_id} style={[s.checkRow, g.locked && { opacity: 0.45 }]} disabled={g.locked} onPress={() => toggleGroup(g.group_id)}
@@ -290,7 +292,8 @@ export default function App() {
                                   </TouchableOpacity>
                                 );
                               })}
-                              {shown.length > 60 && <Text style={s.muted}>يظهر أول 60 — استخدم البحث للوصول للبقية.</Text>}
+                              </ScrollView>
+                              <Text style={s.muted}>{shown.length} قروب — حرّك القائمة لأعلى وأسفل.</Text>
                             </>
                           );
                         })()}
@@ -436,6 +439,7 @@ const s = StyleSheet.create({
   segTxt: { color: C.txt, fontSize: 13 },
   item: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderColor: C.line },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  groupList: { maxHeight: 440, marginTop: 4 },
   groupBox: { borderWidth: 1, borderColor: C.line, borderRadius: 10, padding: 12, marginTop: 8 },
   smallBtn: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 8 },
   checkRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 48, borderBottomWidth: 1, borderColor: C.line },
