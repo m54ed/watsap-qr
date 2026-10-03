@@ -32,6 +32,10 @@ jobs:
       - name: Install Node engine (Baileys) dependencies
         run: cd nodejs-assets/nodejs-project && npm install --omit=dev --omit=optional --ignore-scripts
 
+      # دعم القروبات بنظام LID في Baileys 6.7.16 (منقول من 6.7.24) — يفشل البناء إن لم يجد مواضع الترقيع
+      - name: Patch Baileys for LID groups
+        run: cd nodejs-assets/nodejs-project && node patches/apply-baileys-lid.js
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
