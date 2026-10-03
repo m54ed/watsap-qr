@@ -70,7 +70,7 @@ async function connect() {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   const b = await loadBaileys();
   const makeWASocket = b.default || b.makeWASocket;
-  const { useMultiFileAuthState, fetchLatestBaileysVersion, makeCacheableSignalKeyStore } = b;
+  const { useMultiFileAuthState, fetchLatestBaileysVersion, fetchLatestWaWebVersion, makeCacheableSignalKeyStore } = b;
   let { state: authState, saveCreds: save } = await useMultiFileAuthState(authDir);
   saveCreds = save;
   console.log('WA: auth loaded, registered=' + authState.creds.registered);
@@ -82,7 +82,13 @@ async function connect() {
   // أحدث نسخة واتساب-ويب بمهلة (لازمة لتفادي رفض 405، وبمهلة لتفادي التعلّق)
   let version;
   try {
-    const r = await Promise.race([
+    // الإصدار الحي من web.whatsapp.com أولاً — ملف Baileys على GitHub متوقف عن التحديث (كان أقدم بأيام
+    // فيرفض الجوال الربط «تعذّر ربط الجهاز»). الرجوع إليه فقط إن تعذّر الوصول لواتساب ويب.
+    const live = await Promise.race([
+      fetchLatestWaWebVersion({}),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000)),
+    ]).catch(() => null);
+    const r = live && live.isLatest ? live : await Promise.race([
       fetchLatestBaileysVersion(),
       new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 12000)),
     ]);
